@@ -34,6 +34,107 @@ class GSUP_Import {
 		);
 	}
 
+	const BATCH_MAX = 30;
+
+	/**
+	 * Add several products at once from search results or a store page (the extension's bulk import).
+	 * Each becomes a row with no option chosen yet; products already in the store or waiting in the list are skipped.
+	 * Checking with AliExpress happens in the background.
+	 *
+	 * @param array $items        [{product_id, title, image, price, currency}]
+	 * @param array $category_ids Store categories chosen for them.
+	 * @return array{added:int[],already:string[],failed:array,row_ids:int[]}
+	 */
+	public static function add_batch( array $items, array $category_ids = array() ) {
+		$out  = array(
+			'added'   => array(),
+			'already' => array(),
+			'failed'  => array(),
+			'row_ids' => array(),
+		);
+		$items = array_slice( $items, 0, self::BATCH_MAX );
+		$ids   = array();
+		foreach ( $items as $item ) {
+			$ids[] = is_array( $item ) && isset( $item['product_id'] ) ? (string) $item['product_id'] : '';
+		}
+		$where = self::statuses( $ids ); // Already in the store or the import list: one lookup for the batch.
+		$seen  = array();
+		foreach ( $items as $item ) {
+			$pid = gsup_parse_product_id( is_array( $item ) && isset( $item['product_id'] ) ? (string) $item['product_id'] : '' );
+			if ( '' === $pid ) {
+				$out['failed'][] = array(
+					'product_id' => is_array( $item ) && isset( $item['product_id'] ) ? mb_substr( (string) $item['product_id'], 0, 40 ) : '',
+					'reason'     => 'Not an AliExpress product ID.',
+				);
+				continue;
+			}
+			if ( isset( $seen[ $pid ] ) || ! empty( $where[ $pid ] ) ) {
+				$out['already'][] = $pid;
+				$seen[ $pid ]     = true;
+				continue;
+			}
+			$seen[ $pid ] = true;
+			$result       = self::add(
+				array(
+					'product_id'   => $pid,
+					'title'        => isset( $item['title'] ) ? (string) $item['title'] : '',
+					'image'        => isset( $item['image'] ) ? (string) $item['image'] : '',
+					'price'        => isset( $item['price'] ) ? preg_replace( '/[^0-9.]/', '', (string) $item['price'] ) : '',
+					'currency'     => isset( $item['currency'] ) ? (string) $item['currency'] : '',
+					'category_ids' => $category_ids,
+				),
+				'bulk'
+			);
+			if ( is_wp_error( $result ) ) {
+				$out['failed'][] = array(
+					'product_id' => $pid,
+					'reason'     => $result->get_error_message(),
+				);
+				continue;
+			}
+			$out['added'][]   = $pid;
+			$out['row_ids'][] = (int) $result['id'];
+		}
+		if ( $out['row_ids'] && function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( 'gsup_enrich_rows', array( $out['row_ids'] ), 'givsen-supplier' );
+		}
+		return $out;
+	}
+
+	/**
+	 * Where each AliExpress product already is: 'store' (linked to a store product), 'import' (in the import list),
+	 * or '' (neither). Two queries for the whole list.
+	 *
+	 * @param string[] $ids
+	 * @return array<string,string>
+	 */
+	public static function statuses( array $ids ) {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'gsup_parse_product_id', array_slice( $ids, 0, 200 ) ) ) ) );
+		$out = array_fill_keys( $ids, '' );
+		if ( ! $ids ) {
+			return $out;
+		}
+		$in    = implode( ',', array_fill( 0, count( $ids ), '%s' ) );
+		$table = GSUP_Install::table();
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		foreach ( (array) $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT ae_product_id FROM {$table} WHERE status <> 'dismissed' AND ae_product_id IN ($in)", $ids ) ) as $pid ) {
+			$out[ (string) $pid ] = 'import';
+		}
+		$store = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT pm.meta_value FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+				WHERE pm.meta_key = %s AND p.post_type = 'product' AND p.post_status NOT IN ('trash','auto-draft') AND pm.meta_value IN ($in)",
+				array_merge( array( GSUP_META_PRODUCT ), $ids )
+			)
+		);
+		// phpcs:enable
+		foreach ( (array) $store as $pid ) {
+			$out[ (string) $pid ] = 'store';
+		}
+		return $out;
+	}
+
 	/** The latest words captured from this product's AliExpress page (any option, any row). */
 	public static function page_text_for( $ae_product_id ) {
 		global $wpdb;
@@ -111,8 +212,54 @@ class GSUP_Import {
 			return new WP_Error( 'gsup_ae_off', 'AliExpress API not connected.' );
 		}
 		$ship_to = in_array( $row['ship_from'], array( 'AU', 'US' ), true ) ? $row['ship_from'] : '';
-		$product = GSUP_AliExpress::get_product( $row['ae_product_id'], $ship_to );
-		$update  = array( 'api_checked_at' => current_time( 'mysql', true ) );
+		return self::apply_listing( $row, GSUP_AliExpress::get_product( $row['ae_product_id'], $ship_to ) );
+	}
+
+	/**
+	 * Check many rows with AliExpress at once (a few calls in flight at a time) — used for bulk imports,
+	 * in the background, so a batch never slows the request that added it.
+	 *
+	 * @param int[] $ids Import row IDs.
+	 * @return int Rows checked.
+	 */
+	public static function enrich_many( array $ids ) {
+		if ( ! class_exists( 'GSUP_AliExpress' ) || ! GSUP_AliExpress::is_connected() ) {
+			return 0;
+		}
+		$rows  = array();
+		$pairs = array();
+		foreach ( array_slice( array_map( 'absint', $ids ), 0, 60 ) as $id ) {
+			$row = self::get( $id );
+			if ( ! $row ) {
+				continue;
+			}
+			$ship                     = in_array( $row['ship_from'], array( 'AU', 'US' ), true ) ? $row['ship_from'] : GSUP_AliExpress::default_ship_to();
+			$rows[ $id ]              = array( $row, $row['ae_product_id'] . '|' . $ship );
+			$pairs[ $rows[ $id ][1] ] = array( $row['ae_product_id'], $ship );
+		}
+		$listings = $pairs ? GSUP_AliExpress::get_products( array_values( $pairs ) ) : array();
+		foreach ( $rows as $r ) {
+			self::apply_listing( $r[0], isset( $listings[ $r[1] ] ) ? $listings[ $r[1] ] : new WP_Error( 'gsup_ae_missing', 'No reply from AliExpress.' ) );
+		}
+		return count( $rows );
+	}
+
+	/** Background job: check freshly added bulk rows. */
+	public static function enrich_job( $ids ) {
+		self::enrich_many( (array) $ids );
+	}
+
+	/**
+	 * Fill a row from its AliExpress listing (or record why it couldn't be checked).
+	 *
+	 * @param array          $row
+	 * @param array|WP_Error $product Listing from GSUP_AliExpress::get_product().
+	 * @return true|WP_Error
+	 */
+	private static function apply_listing( array $row, $product ) {
+		global $wpdb;
+		$id     = (int) $row['id'];
+		$update = array( 'api_checked_at' => current_time( 'mysql', true ) );
 
 		if ( is_wp_error( $product ) ) {
 			$update['api_note'] = mb_substr( $product->get_error_message(), 0, 255 );
@@ -147,6 +294,13 @@ class GSUP_Import {
 			$update['api_note'] = 0 === $sku['stock'] ? 'Checked with AliExpress — this option is out of stock.' : 'Checked with AliExpress.';
 		} elseif ( '' !== (string) $row['ae_sku_id'] ) {
 			$update['api_note'] = 'This option ID isn’t on the AliExpress listing any more.';
+		} elseif ( 'bulk' === (string) $row['source'] ) {
+			$update['api_note'] = sprintf( 'Checked with AliExpress: %d options — choose the warehouse and options on Add to store.', count( $product['skus'] ) );
+			$first              = $product['skus'] ? $product['skus'][0] : null;
+			if ( $first && '' === (string) $row['price'] ) {
+				$update['price']    = mb_substr( (string) $first['price'], 0, 32 );
+				$update['currency'] = substr( preg_replace( '/[^A-Z]/', '', strtoupper( $first['currency'] ) ), 0, 8 );
+			}
 		} else {
 			$update['api_note'] = sprintf( 'This product has %d options on AliExpress — add the one you want with the extension.', count( $product['skus'] ) );
 		}

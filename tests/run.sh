@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs every check: PHP syntax, extension JavaScript syntax, unit tests, and a render of every settings screen.
+# Runs every check: PHP syntax, extension JavaScript syntax, unit tests, browser tests of the extension (when
+# Playwright is installed), and a render of every settings screen.
 set -u
 cd "$(dirname "$0")/.."
 status=0
@@ -22,6 +23,23 @@ for t in tests/test-*.php; do
     echo "ok  $t ($(grep -c '^PASS' <<< "$out") checks)"
   fi
 done
+
+echo "== Browser tests (extension on saved AliExpress pages)"
+export NODE_PATH="${NODE_PATH:-}:$(npm root -g 2>/dev/null)"
+if node -e "require('playwright')" 2>/dev/null; then
+  for t in tests/browser/*.test.js; do
+    out=$(node "$t" 2>&1); code=$?
+    if [ $code -ne 0 ] || ! grep -q "ALL PASSED" <<< "$out"; then
+      echo "FAILED: $t"; echo "$out" | grep -v '^PASS'; status=1
+    else
+      echo "ok  $t ($(grep -c '^PASS' <<< "$out") checks)"
+    fi
+  done
+elif [ -n "${CI:-}" ]; then
+  echo "FAILED: Playwright isn't installed"; status=1
+else
+  echo "skipped (install with: npm i -g playwright && npx playwright install chromium)"
+fi
 
 echo "== Settings screens render"
 for s in overview aliexpress ordering pricing sync ai countries extension reports; do

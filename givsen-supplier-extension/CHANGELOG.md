@@ -1,5 +1,10 @@
 # Givsen Supplier (Chrome extension) — Changelog
 
+## 0.6.0 — 2026-09-26
+- **Bulk import**: on AliExpress search results, store pages and a product page's related items, every product card gets a "Givsen" checkbox, and a bar at the bottom left says "Add N to Givsen" with the same category dropdown as the card (remembers your last choice). Up to 30 at a time. Sends each product's ID, title, picture and price; your store checks the rest with AliExpress in the background. Result: added, already there, failed (with reasons), and a link to the import list.
+- Cards already in your store or import list are labelled "In store" / "In import list" (asked once per page, and again only for newly loaded results) and start unticked.
+- Products are found from their `/item/<id>.html` links, not AliExpress's class names, so layout changes shouldn't break it. Pages without product cards show nothing. Needs plugin 0.12.0.
+
 ## 0.5.0 — 2026-09-26
 - **Use as backup for a product in your store** on the Add to Givsen card: search your linked products (name, AliExpress ID, ships-from, whether it has a backup), then "Save as backup supplier" with this listing and the ships-from chosen on the page. Disabled when this listing is already that product's supplier; replacing an existing backup asks you to click again to confirm. Shows options matched, the ones that weren't, cost now vs. backup, and a link to the product's Supplier tab. Needs plugin 0.11.0.
 

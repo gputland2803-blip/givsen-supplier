@@ -1,5 +1,12 @@
 # Givsen Supplier — Changelog
 
+## 0.12.0 — 2026-09-26
+- **Bulk import from search results and store pages** (with Chrome extension 0.6.0). Tick products on AliExpress search results, store pages or a product page's related items, choose a category, and "Add N to Givsen" — up to 30 at a time. Each becomes an import-list row with no option chosen yet ("Choose warehouse and options on Add to store"), then Add to store works as usual.
+- Products already in your store or already waiting in the import list are skipped (dismissed rows are brought back); the extension labels those cards "In store" / "In import list" before you tick anything. The reply says how many were added, already there, and failed (with the reason).
+- Added rows are checked with AliExpress in the background (Action Scheduler job `gsup_enrich_rows`, the same parallel calls as the daily sync), so adding 30 is instant: title and picture updated, a single-option listing gets its option, warehouse and price; otherwise the note says how many options there are. A failed check is noted on the row and never blocks anything.
+- New signed endpoints `POST /import-batch` and `POST /status` (signature version 2 only; status answers a whole page in two queries). Uninstall also clears pending background checks.
+- Tests: saved sample search, store and product pages with a browser test of the extension, and batch dedupe / background check tests. Browser tests run on GitHub too.
+
 ## 0.11.0 — 2026-09-26
 - **Save as backup supplier from AliExpress** (with Chrome extension 0.5.0). On the Add to Givsen card, pick one of your linked store products and click "Save as backup supplier": the listing's options (for the warehouse chosen on the page) are matched to the product's options automatically — the same matching as Change supplier — and saved as its backup in exactly the same form. It never switches the supplier and never changes prices; automatic switch-over keeps its rule (only when every mapped option exists and is in stock).
 - The reply shows options matched (e.g. 2 of 3), the ones that weren't by name, cost with delivery now vs. the backup, and a link to the Supplier tab. Refused when the listing is already the product's main supplier, when it has no options from that warehouse, or when nothing matches. Replacing an existing backup needs confirming.

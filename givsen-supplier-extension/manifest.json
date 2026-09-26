@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Givsen Supplier",
-  "version": "0.5.0",
-  "description": "Adds an \"Add to Givsen\" button to AliExpress product pages. Sends the product and the selected option to your Givsen Supplier import list.",
+  "version": "0.6.0",
+  "description": "Adds an \"Add to Givsen\" button to AliExpress product pages and bulk-add checkboxes to search results and store pages. Sends products to your Givsen Supplier import list.",
   "minimum_chrome_version": "111",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": { "default_title": "Givsen Supplier settings", "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png" } },
@@ -19,7 +19,7 @@
     },
     {
       "matches": ["https://*.aliexpress.com/*", "https://*.aliexpress.us/*"],
-      "js": ["match.js", "content.js"],
+      "js": ["match.js", "content.js", "bulk.js"],
       "run_at": "document_idle"
     }
   ]

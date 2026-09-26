@@ -58,6 +58,24 @@ class GSUP_REST {
 		);
 		register_rest_route(
 			self::NS,
+			'/import-batch',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'import_batch' ),
+				'permission_callback' => array( __CLASS__, 'verify' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
+			'/status',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'status' ),
+				'permission_callback' => array( __CLASS__, 'verify' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
 			'/backup',
 			array(
 				'methods'             => 'POST',
@@ -155,6 +173,39 @@ class GSUP_REST {
 			array(
 				'ok'         => true,
 				'categories' => $list,
+			)
+		);
+	}
+
+	/** Bulk import from search results / store pages: rows with no option yet, checked in the background. */
+	public static function import_batch( WP_REST_Request $request ) {
+		$data = $request->get_json_params();
+		if ( ! is_array( $data ) || empty( $data['items'] ) || ! is_array( $data['items'] ) ) {
+			return new WP_Error( 'gsup_bad_json', 'No products sent.', array( 'status' => 400 ) );
+		}
+		if ( count( $data['items'] ) > GSUP_Import::BATCH_MAX ) {
+			return new WP_Error( 'gsup_too_many', 'At most ' . GSUP_Import::BATCH_MAX . ' products at a time.', array( 'status' => 400 ) );
+		}
+		$r = GSUP_Import::add_batch( $data['items'], isset( $data['category_ids'] ) ? (array) $data['category_ids'] : array() );
+		return rest_ensure_response(
+			array(
+				'ok'          => true,
+				'added'       => count( $r['added'] ),
+				'already'     => count( $r['already'] ),
+				'failed'      => $r['failed'],
+				'import_list' => gsup_admin_url(),
+			)
+		);
+	}
+
+	/** Which of these AliExpress products are already in the store or the import list. */
+	public static function status( WP_REST_Request $request ) {
+		$data = $request->get_json_params();
+		$ids  = is_array( $data ) && isset( $data['product_ids'] ) && is_array( $data['product_ids'] ) ? array_map( 'strval', array_filter( $data['product_ids'], 'is_scalar' ) ) : array();
+		return rest_ensure_response(
+			array(
+				'ok'       => true,
+				'statuses' => (object) GSUP_Import::statuses( $ids ),
 			)
 		);
 	}

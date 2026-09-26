@@ -107,7 +107,7 @@ class GSUP_Admin_Page {
 		$counts = GSUP_Import::counts();
 		$rows   = GSUP_Import::query( $status, self::PER_PAGE, $paged );
 
-		echo '<p class="gsup-intro">Products you add with the <strong>Add to Givsen</strong> button on AliExpress land here. Link each one to a product or variation in your store — the link is stored by ID, so renaming anything in WooCommerce never breaks it.</p>';
+		echo '<p class="gsup-intro">Products you add with the <strong>Add to Givsen</strong> button on AliExpress — or tick in bulk on search results and store pages — land here. Link each one to a product or variation in your store — the link is stored by ID, so renaming anything in WooCommerce never breaks it.</p>';
 
 		self::render_manual_form();
 
@@ -177,7 +177,13 @@ class GSUP_Admin_Page {
 			echo esc_html( $row['option_label'] ) . '<br>';
 		}
 		echo '<span class="gsup-meta">';
-		echo '' !== $row['ae_sku_id'] ? 'SKU ' . esc_html( $row['ae_sku_id'] ) : '<em>No option captured</em>';
+		if ( '' !== $row['ae_sku_id'] ) {
+			echo 'SKU ' . esc_html( $row['ae_sku_id'] );
+		} elseif ( 'bulk' === (string) $row['source'] ) {
+			echo '<em>Choose warehouse and options on Add to store</em>';
+		} else {
+			echo '<em>No option captured</em>';
+		}
 		if ( '' !== $row['ship_from'] ) {
 			echo ' · Ships from <strong>' . esc_html( gsup_ship_from_label( $row['ship_from'] ) ) . '</strong>';
 		}

@@ -69,6 +69,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     callStore('backup', 'POST', msg.payload).then(sendResponse);
     return true;
   }
+  if (msg.type === 'gsup:status') {
+    const ids = Array.isArray(msg.product_ids) ? msg.product_ids.slice(0, 200) : [];
+    callStore('status', 'POST', { product_ids: ids }).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'gsup:import-batch') {
+    callStore('import-batch', 'POST', msg.payload).then(sendResponse);
+    return true;
+  }
   if (msg.type === 'gsup:categories') {
     const fresh = categoryCache && Date.now() - categoryCache.at < 10 * 60 * 1000;
     if (fresh && !msg.reload) {

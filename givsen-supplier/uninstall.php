@@ -42,4 +42,5 @@ if ( function_exists( 'as_unschedule_all_actions' ) ) {
 	as_unschedule_all_actions( 'gsup_tracking_check', array(), 'givsen-supplier' );
 	as_unschedule_all_actions( 'gsup_parcel_check', array(), 'givsen-supplier' );
 	as_unschedule_all_actions( 'gsup_place_order' );
+	as_unschedule_all_actions( 'gsup_enrich_rows' );
 }

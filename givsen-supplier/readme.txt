@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.11.0
+Stable tag: 0.12.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -13,7 +13,7 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 == Description ==
 
 * Product ID stored on the product; SKU ID, ships-from and option stored on each variation. Renaming never breaks a link.
-* Import list fed by the Givsen Supplier Chrome extension (or by pasting a link).
+* Import list fed by the Givsen Supplier Chrome extension — one product at a time, or up to 30 at once from search results and store pages — or by pasting a link.
 * Connects to the AliExpress Dropshipping API to fill in exact option details.
 * Creates draft store products from AliExpress listings, one per warehouse, with your pricing rule.
 * Daily sync with AliExpress for stock, cost and removed listings.
@@ -32,6 +32,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.12.0 =
+* Bulk import with the Chrome extension (0.6.0): tick products on AliExpress search results, store pages or a product's related items and add up to 30 at once; they're checked with AliExpress in the background. Cards already in your store or import list are labelled.
 
 = 0.11.0 =
 * Save a backup supplier straight from AliExpress with the Chrome extension (0.5.0): options matched automatically, cost compared; never switches supplier or changes prices.

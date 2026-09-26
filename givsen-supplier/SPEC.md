@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.11.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.12.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -41,6 +41,7 @@ Table `{prefix}gsup_import`. Statuses: `new` (To link), `linked`, `dismissed`. T
 - to a variable parent → product ID only (warns that the option wasn't stored);
 - refused if the parent is already linked to a different AliExpress product.
 Empty captured values never overwrite existing ones.
+Bulk rows (source `bulk`, from `/import-batch`) have an empty SKU and show "Choose warehouse and options on Add to store"; they're checked with AliExpress in the background (`gsup_enrich_rows` → `GSUP_Import::enrich_many()`: one `get_products()` batch for up to 60 rows, ships-to = row's warehouse else `default_ship_to()`). Many options → note "Checked with AliExpress: N options — choose the warehouse and options on Add to store", price filled from the first option only if the card had none; one option → SKU, option, ships-from and price set (unless that product + SKU is already a row); errors → `api_note`, `api_checked_at` set.
 
 ## Extension endpoints
 Namespace `givsen-supplier/v1`. Every request sends `X-Gsup-Timestamp` (unix seconds) and `X-Gsup-Signature` = hex HMAC-SHA256 of `"<timestamp>.<raw body>"` with the connection key (option `gsup_secret`). Older than 5 minutes → refused.
@@ -48,6 +49,8 @@ Namespace `givsen-supplier/v1`. Every request sends `X-Gsup-Timestamp` (unix sec
 - `GET /categories` → `{ok, categories:[{id, name (full path), depth}]}`
 - `GET /linked-products?search=` → `{ok, products:[{id, name, ae_product_id, ships_from, has_backup, backup_id, edit_url}]}` (linked products, up to 20, title search). v2 signature only; the query string isn't signed.
 - `POST /backup` body `{wc_product_id, product_id, ship_from, replace}` → `GSUP_Remap::save_backup_from_listing()`: refuses same-as-main (`gsup_same_as_main`), existing backup without `replace` (`gsup_backup_exists`, `data.current_backup`, HTTP 409), no options in that warehouse (`gsup_no_warehouse`; empty ship_from = the listing's only warehouse), nothing matched (`gsup_no_match`). Matches with `GSUP_Remap::auto_match()` over the warehouse's SKUs; saves `_gsup_backup` {product_id, ship, map, saved_at} (unmatched options simply absent from map); never switches or reprices. Returns `{ok, matched, total, unmatched:[names], cost:{current, backup, currency, items:[{name, current, backup}]}, replaced, supplier_url}` — current = `GSUP_Profit::unit_cost()`, backup = SKU price + one delivery quote. v2 signature only.
+- `POST /import-batch` body `{items:[{product_id, title, image, price, currency}], category_ids[]}` (max 30, `gsup_too_many` otherwise) → `GSUP_Import::add_batch()`: skips IDs in the batch twice, linked to a store product, or with a non-dismissed row (one `statuses()` lookup); dismissed rows return to To link; invalid IDs → failed. Returns `{ok, added, already, failed:[{product_id, reason}], import_list}` and queues `gsup_enrich_rows` with the new row IDs. No AliExpress calls in the request. v2 signature only.
+- `POST /status` body `{product_ids[]}` (max 200) → `{ok, statuses:{id: "store"|"import"|""}}` — "store" = a product (not trashed) has `_gsup_ae_product_id` = id; "import" = a non-dismissed import row. Two queries. v2 signature only.
 - `POST /import` body `{product_id | url, sku_id, ship_from, option, title, image, price, currency, category_ids[], page_text}` (page_text: the page's AI overview, description and specifications as plain text, max 8000) → `{ok, id, duplicate, status, product_id, sku_id, ship_from, option, title, api_note, categories[], linked:[{id,name,edit_url}], import_list}`. Unknown category IDs are dropped.
 `ship_from` accepts a code (AU) or a name as AliExpress shows it (Australia, United States).
 
@@ -125,7 +128,7 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 - Quantity shown is net of refunds.
 
 ## Uninstall
-Drops the import list table and the plugin's options. Keeps product links and order numbers/tracking, so reinstalling picks up where you left off.
+Drops the import list table and the plugin's options, and unschedules its background jobs (incl. `gsup_enrich_rows`). Keeps product links and order numbers/tracking, so reinstalling picks up where you left off.
 
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
@@ -161,7 +164,7 @@ Empty result (no words, e.g. image-only listings) → words captured from the pa
 `gsup_ae_log_entries` (last 30; not autoloaded), written at shutdown. Params without session/sign/app_key/tokens/code; order requests keep only product items and country. /auth calls never logged. Off with `gsup_ae_log` = no.
 
 ## Tests
-`tests/run.sh`: PHP lint, extension syntax, `tests/test-*.php` (stand-ins for WordPress/WooCommerce), render of every settings section. GitHub Actions: `.github/workflows/tests.yml`.
+`tests/run.sh`: PHP lint, extension syntax, `tests/test-*.php` (stand-ins for WordPress/WooCommerce), `tests/browser/*.test.js` (Playwright + Chromium on saved pages in `tests/fixtures/`; skipped locally without Playwright, required in CI), render of every settings section. GitHub Actions: `.github/workflows/tests.yml`.
 
 ## Customer-facing
 Tracking link `https://t.17track.net/en#nums=` (filter `gsup_tracking_url`). Carrier shown only via `GSUP_Orders::local_carrier()` (filter `gsup_local_carriers`); AST only when a local carrier is recognised (item `_gsup_in_ast`), otherwise the plugin's own display.
@@ -237,4 +240,8 @@ Run after any change, on a staging copy with MySQL.
 48. Extension 0.5.0 on a listing → "Use as backup for a product in your store" lists linked products (search narrows it); the product whose supplier this listing is shows the button disabled with "already that product's main supplier".
 49. Pick a product with no backup → Save → "N of M options matched", unmatched names, cost now vs backup, link opens the Supplier tab showing the backup and "N option(s) not matched — review" (link opens Change supplier with the listing). Prices and main supplier unchanged.
 50. Pick a product that has a backup → note "This replaces the current backup (ID …)"; first click only asks to confirm, second click replaces.
-51. Choose a warehouse on the page the listing doesn't… (e.g. US when only AU exists via typed ships-from) → "no options shipping from …". An older extension (0.4.x) can still send to the import list but can't use /backup.
+51. On a listing whose options all ship from one warehouse (e.g. AU), save it as a backup with a different ships-from chosen (e.g. United States) → refused with "no options shipping from …", nothing saved. An older extension (0.4.x) can still send to the import list but can't use /backup.
+52. Extension 0.6.0 on an AliExpress search (Ships from: Australia) → a "Givsen" checkbox on every product card and the "Add N to Givsen" bar bottom-left; cards already linked say "In store", cards in the import list say "In import list", all unticked. Scroll → new results get checkboxes too.
+53. Tick 3 new products + 1 "In import list" product, choose a category → Add 4 → "Added 3, already there 1"; the ticked cards now say "In import list". Import list shows 3 new rows with "Choose warehouse and options on Add to store" and the category; within a minute (WP-Cron/Action Scheduler) each row's note says it was checked with AliExpress (title/picture updated; single-option listings show their option and ships-from).
+54. Try to tick a 31st product → can't (boxes disabled, bar says "max 30"). Add to store on a bulk row → choose warehouse and options as usual → linked; the card then shows "In store" after a page refresh.
+55. A store page and a product page's "More to love" section → checkboxes on the products (not on the product you're viewing). An AliExpress page without products (orders, cart) → no checkboxes, no bar.
