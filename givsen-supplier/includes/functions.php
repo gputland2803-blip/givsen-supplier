@@ -16,6 +16,7 @@ define( 'GSUP_ITEM_TRACKING', '_gsup_tracking_no' );
 define( 'GSUP_META_COST', '_gsup_cost' );             // AliExpress item cost (store currency).
 define( 'GSUP_META_SHIP_COST', '_gsup_ship_cost' );   // AliExpress delivery fee for one item.
 define( 'GSUP_META_SHIP_METHOD', '_gsup_ship_method' ); // Delivery method that fee is for.
+define( 'GSUP_META_SHIP_DAYS', '_gsup_ship_days' );   // AliExpress's delivery estimate for that method, "min-max" days.
 define( 'GSUP_ITEM_CARRIER', '_gsup_carrier' );       // Carrier AliExpress reported with the tracking number.
 define( 'GSUP_ITEM_UNIT_COST', '_gsup_unit_cost' );   // Cost of one item (incl. shipping) when the order was placed.
 define( 'GSUP_ITEM_AE_COST', '_gsup_ae_cost' );       // What the AliExpress order cost (quoted, or paid once known).

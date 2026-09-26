@@ -175,18 +175,30 @@ class GSUP_Tidy {
 		return (bool) preg_match( $pattern, (string) $text );
 	}
 
-	/** Remove whole paragraphs/list items/cells whose text is seller boilerplate. */
+	/**
+	 * Remove paragraphs, list items and cells whose text is seller boilerplate. Only short, self-contained
+	 * blocks (no lists, tables, images or other blocks inside) are ever removed, so one stray line can't take
+	 * real product wording with it.
+	 */
 	private static function drop_boilerplate( $h ) {
+		$h = self::drop_ae_links( $h );
 		for ( $i = 0; $i < 2; $i++ ) {
 			$h = preg_replace_callback(
-				'#<(p|li|h[1-6]|td|th|div)\b[^>]*>((?:(?!<\1\b).)*?)</\1>#is',
+				// Innermost blocks only: the content may not contain another block, so a wrapper is never matched.
+				'#<(p|li|h[1-6]|td|th|div)\b[^>]*>((?:(?!<(?:p|div|ul|ol|li|table|tr|td|th|img|h[1-6])\b).)*?)</\1>#is',
 				function ( $m ) {
-					return self::is_boilerplate( wp_strip_all_tags( $m[2] ) ) ? '' : $m[0];
+					$text = wp_strip_all_tags( $m[2] );
+					return mb_strlen( $text ) <= 300 && self::is_boilerplate( $text ) ? '' : $m[0];
 				},
 				$h
 			);
 		}
 		return $h;
+	}
+
+	/** Links to AliExpress (store pages, other listings) go, words and all — they're never product details. */
+	private static function drop_ae_links( $h ) {
+		return preg_replace( '#<a\b[^>]*href=["\']?[^"\'>]*(aliexpress|alicdn|alibaba)[^"\'>]*["\']?[^>]*>.*?</a>#is', '', (string) $h );
 	}
 
 	/**
@@ -198,6 +210,8 @@ class GSUP_Tidy {
 		$h = preg_replace( '#<(script|style|iframe|noscript|object|embed|form)\b[^>]*>.*?</\1\s*>#is', '', $h );
 		$h = preg_replace( '#<!--.*?-->#s', '', $h );
 		$h = preg_replace( '#<img\b[^>]*>#i', '', $h );
+		$h = self::drop_ae_links( $h );
+		$h = preg_replace( '#(</(p|ul|ol)>)#i', "$1\n", $h );
 		$h = preg_replace( '#</t[dh]>\s*</tr>#i', "\n", $h );
 		$h = preg_replace( '#</?(tr|div|section|article|table|tbody|thead|center|h[1-6])\b[^>]*>#i', "\n", $h );
 		$h = preg_replace( '#</t[dh]>[ \t]*<t[dh]\b[^>]*>#i', ': ', $h ); // Cells in a row: "Material: Soy wax".
@@ -220,7 +234,7 @@ class GSUP_Tidy {
 		foreach ( preg_split( "#\n+|<br\s*/?>\s*<br\s*/?>#i", $h ) as $chunk ) {
 			$chunk = trim( preg_replace( '/(&nbsp;|\s)+/u', ' ', $chunk ) );
 			$text  = trim( wp_strip_all_tags( $chunk ) );
-			if ( '' === $text || self::is_boilerplate( $text ) ) {
+			if ( '' === $text || ( mb_strlen( $text ) <= 300 && self::is_boilerplate( $text ) ) ) {
 				continue;
 			}
 			$out[] = preg_match( '#^<(p|ul|ol|li)\b#i', $chunk ) ? $chunk : '<p>' . $chunk . '</p>';
@@ -239,8 +253,8 @@ class GSUP_Tidy {
 		$h = preg_replace( '#\s(?:style|class|id|width|height|align|valign|bgcolor|border|cellpadding|cellspacing|face|size|color|data-[\w-]+)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $h );
 		// Unwrap presentational tags.
 		$h = preg_replace( '#</?(font|span|center|u|o:p)\b[^>]*>#i', '', $h );
-		// Links back to AliExpress (store pages, other items): keep the words, drop the link.
-		$h = preg_replace( '#<a\b[^>]*href=["\']?[^"\'>]*aliexpress[^"\'>]*["\']?[^>]*>(.*?)</a>#is', '$1', $h );
+		// Links back to AliExpress (store pages, other items) go, words and all.
+		$h = self::drop_ae_links( $h );
 		// Images: protocol-relative → https, lazy-loaded, with alt text.
 		$alt = esc_attr( $title );
 		$h   = preg_replace_callback(

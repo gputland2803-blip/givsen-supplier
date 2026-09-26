@@ -477,6 +477,9 @@ class GSUP_Creator {
 		if ( $freight ) {
 			$wc->update_meta_data( GSUP_META_SHIP_COST, wc_format_decimal( $freight['fee'], 2 ) );
 			$wc->update_meta_data( GSUP_META_SHIP_METHOD, (string) $freight['code'] );
+			if ( ! empty( $freight['max_days'] ) ) {
+				$wc->update_meta_data( GSUP_META_SHIP_DAYS, (int) $freight['min_days'] . '-' . (int) $freight['max_days'] );
+			}
 		}
 	}
 

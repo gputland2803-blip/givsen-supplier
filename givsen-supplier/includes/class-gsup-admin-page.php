@@ -15,7 +15,7 @@ class GSUP_Admin_Page {
 		add_filter( 'woocommerce_screen_ids', array( __CLASS__, 'screen_ids' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ), 20 );
 		add_action( 'admin_notices', array( __CLASS__, 'product_screen_notices' ) );
-		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply' ) as $action ) {
+		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_eta', 'ae_log_clear', 'ae_log_save' ) as $action ) {
 			add_action( 'admin_post_gsup_' . $action, array( __CLASS__, 'handle_' . $action ) );
 		}
 	}
@@ -276,7 +276,7 @@ class GSUP_Admin_Page {
 			'overview'   => array( 'Overview', 'Overview', 'What’s set up, and anything that needs you.' ),
 			'aliexpress' => array( 'AliExpress connection', 'AliExpress connection', 'Your AliExpress app, the connection, and a product tester.' ),
 			'ordering'   => array( 'Ordering & tracking', 'Ordering & tracking', 'Place paid orders on AliExpress automatically and bring tracking back.' ),
-			'pricing'    => array( 'Pricing & profit', 'Pricing & profit', 'How new products are priced, and how margin is worked out.' ),
+			'pricing'    => array( 'Pricing & profit', 'Pricing, profit & delivery estimate', 'How new products are priced, how margin is worked out, and the delivery estimate customers see.' ),
 			'sync'       => array( 'Daily sync', 'Daily sync', 'Keep stock, costs and delivery fees in step with AliExpress.' ),
 			'countries'  => array( 'Country restrictions', 'Country restrictions', 'Show each product only in the countries its warehouse serves (CBR).' ),
 			'extension'  => array( 'Chrome extension', 'Chrome extension', 'Connect the Add to Givsen button to this store.' ),
@@ -362,6 +362,7 @@ class GSUP_Admin_Page {
 			case 'pricing':
 				self::render_pricing();
 				self::render_profit();
+				self::render_eta();
 				break;
 			case 'sync':
 				self::render_sync();
@@ -833,6 +834,20 @@ class GSUP_Admin_Page {
 		echo '<p><button type="submit" class="button button-primary">Save automatic ordering</button></p></form>';
 	}
 
+	private static function render_eta() {
+		$s = GSUP_Eta::settings();
+		echo '<h3 id="gsup-eta">Delivery estimate on product pages</h3>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form"><input type="hidden" name="action" value="gsup_save_eta">';
+		wp_nonce_field( 'gsup_save_eta' );
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row">Show it</th><td><label><input type="checkbox" name="show" value="yes"' . checked( GSUP_Eta::enabled(), true, false ) . '> Show an estimated delivery under the price</label><p class="description">From AliExpress’s delivery estimate for your shipping method (updated weekly), plus your processing time. Products without an estimate show nothing.</p></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_eta_processing">Processing time</label></th><td><input type="number" id="gsup_eta_processing" name="processing" min="0" max="30" class="small-text" value="' . esc_attr( $s['processing'] ) . '"> days added before it ships</td></tr>';
+		echo '<tr><th scope="row">Wording</th><td><label><input type="radio" name="format" value="dates"' . checked( $s['format'], 'dates', false ) . '> Dates — “Estimated delivery: Tue 1 Oct – Fri 4 Oct”</label><br><label><input type="radio" name="format" value="days"' . checked( $s['format'], 'days', false ) . '> Days — “Delivered in 3–6 business days”</label><br>';
+		echo '<label><input type="checkbox" name="business" value="yes"' . checked( $s['business'], true, false ) . '> Count business days only (skip weekends)</label></td></tr>';
+		echo '<tr><th scope="row">Example</th><td>' . esc_html( GSUP_Eta::text( array( 2, 5 ) ) ) . ' <span class="gsup-meta">(for a 2–5 day estimate)</span></td></tr>';
+		echo '</tbody></table><p><button type="submit" class="button button-primary">Save delivery estimate</button></p></form>';
+	}
+
 	private static function render_profit() {
 		echo '<h3 id="gsup-profit">Profit and margin</h3>';
 		echo '<p>Margin is shown on the products list and on every order: your price minus the AliExpress cost with delivery and payment fees, as a share of your price (before tax).</p>';
@@ -984,6 +999,32 @@ class GSUP_Admin_Page {
 		echo '<button type="submit" class="button">Fetch from AliExpress</button>';
 		echo '</form>';
 		self::render_ae_test_result();
+		self::render_ae_log();
+	}
+
+	/** Last AliExpress calls, to copy when something needs looking at. */
+	private static function render_ae_log() {
+		$log = get_option( 'gsup_ae_log_entries' );
+		$log = is_array( $log ) ? array_reverse( $log ) : array();
+		echo '<h3 id="gsup-ae-log">4. Diagnostics</h3>';
+		echo '<p class="gsup-meta">The last ' . count( $log ) . ' AliExpress calls (up to 30), newest first. Your access token, app key and customers’ addresses are never kept. If something isn’t working, click <strong>Copy all</strong> and paste it to whoever is helping you.</p>';
+		if ( $log ) {
+			$text = '';
+			foreach ( $log as $e ) {
+				$text .= '=== ' . gmdate( 'Y-m-d H:i:s', $e['at'] ) . ' UTC · ' . $e['api'] . ' · HTTP ' . $e['http'] . ' · ' . $e['ms'] . ' ms' . ( '' !== $e['error'] ? ' · ' . $e['error'] : '' ) . "\n";
+				$text .= 'params: ' . wp_json_encode( $e['params'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . "\n";
+				$text .= 'reply: ' . $e['reply'] . "\n\n";
+			}
+			echo '<p>' . gsup_copy_button( 'Givsen Supplier ' . GSUP_VERSION . "\n\n" . $text, 'Copy all' ) . ' <a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=gsup_ae_log_clear' ), 'gsup_ae_log_clear' ) ) . '">Clear</a></p>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			echo '<table class="widefat striped gsup-sku-table"><thead><tr><th>When</th><th>Call</th><th>Result</th><th>Time</th></tr></thead><tbody>';
+			foreach ( array_slice( $log, 0, 15 ) as $e ) {
+				echo '<tr><td>' . esc_html( human_time_diff( $e['at'] ) ) . ' ago</td><td><code>' . esc_html( $e['api'] ) . '</code></td><td>' . ( '' !== $e['error'] ? '<span class="gsup-warn">' . esc_html( $e['error'] ) . '</span>' : 'OK' ) . '</td><td>' . (int) $e['ms'] . ' ms</td></tr>';
+			}
+			echo '</tbody></table>';
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form"><input type="hidden" name="action" value="gsup_ae_log_save">';
+		wp_nonce_field( 'gsup_ae_log_save' );
+		echo '<p><label><input type="checkbox" name="on" value="yes"' . checked( GSUP_AliExpress::logging(), true, false ) . '> Keep this log</label> <button type="submit" class="button">Save</button></p></form>';
 	}
 
 	private static function render_ae_test_result() {
@@ -1427,6 +1468,38 @@ class GSUP_Admin_Page {
 		}
 		gsup_flash( $parts ? 'Country restrictions: ' . esc_html( implode( ' · ', $parts ) ) . '.' : 'No linked products found.', empty( $results['set'] ) ? 'info' : 'success' );
 		wp_safe_redirect( gsup_settings_url( 'countries' ) );
+		exit;
+	}
+
+	public static function handle_save_eta() {
+		self::guard( 'gsup_save_eta' );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
+		update_option( 'gsup_eta_show', isset( $_POST['show'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_eta_processing', max( 0, min( 30, isset( $_POST['processing'] ) ? (int) $_POST['processing'] : 1 ) ), false );
+		update_option( 'gsup_eta_format', isset( $_POST['format'] ) && 'days' === $_POST['format'] ? 'days' : 'dates', false );
+		update_option( 'gsup_eta_business', isset( $_POST['business'] ) ? 'yes' : 'no', false );
+		// phpcs:enable
+		gsup_flash( 'Delivery estimate saved.' );
+		wp_safe_redirect( gsup_settings_url( 'pricing' ) . '#gsup-eta' );
+		exit;
+	}
+
+	public static function handle_ae_log_clear() {
+		self::guard( 'gsup_ae_log_clear' );
+		delete_option( 'gsup_ae_log_entries' );
+		gsup_flash( 'Diagnostics log cleared.', 'info' );
+		wp_safe_redirect( gsup_settings_url( 'aliexpress' ) . '#gsup-ae-log' );
+		exit;
+	}
+
+	public static function handle_ae_log_save() {
+		self::guard( 'gsup_ae_log_save' );
+		update_option( 'gsup_ae_log', isset( $_POST['on'] ) ? 'yes' : 'no', false ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
+		if ( ! isset( $_POST['on'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			delete_option( 'gsup_ae_log_entries' );
+		}
+		gsup_flash( 'Saved.' );
+		wp_safe_redirect( gsup_settings_url( 'aliexpress' ) . '#gsup-ae-log' );
 		exit;
 	}
 

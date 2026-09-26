@@ -561,6 +561,11 @@ class GSUP_Sync {
 				$item->update_meta_data( GSUP_META_SHIP_METHOD, (string) $freight['code'] );
 				$changed = true;
 			}
+			$days = ! empty( $freight['max_days'] ) ? (int) $freight['min_days'] . '-' . (int) $freight['max_days'] : '';
+			if ( '' !== $days && (string) get_post_meta( $id, GSUP_META_SHIP_DAYS, true ) !== $days ) {
+				$item->update_meta_data( GSUP_META_SHIP_DAYS, $days );
+				$changed = true;
+			}
 		}
 		$ship = $freight ? (float) $freight['fee'] : (float) get_post_meta( $id, GSUP_META_SHIP_COST, true );
 

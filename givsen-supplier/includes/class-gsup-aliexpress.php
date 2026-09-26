@@ -17,6 +17,59 @@ class GSUP_AliExpress {
 	const STATE_PREFIX  = 'gsup_ae_state_';
 	const REFRESH_AHEAD = 3 * DAY_IN_SECONDS; // At most; short-lived connections renew at a quarter of their life.
 
+	/** Calls to add to the diagnostics log, saved once at the end of the request. */
+	private static $log_queue = array();
+
+	/** Keep a diagnostics log of the last calls (Settings → AliExpress connection). On by default. */
+	public static function logging() {
+		return 'no' !== get_option( 'gsup_ae_log', 'yes' );
+	}
+
+	/** Parameters safe to keep: no tokens or signatures, and no customer details from orders. */
+	private static function loggable_params( array $params ) {
+		foreach ( array( 'session', 'sign', 'app_key', 'access_token', 'refresh_token', 'code' ) as $k ) {
+			unset( $params[ $k ] );
+		}
+		if ( isset( $params['param_place_order_request4_open_api_d_t_o'] ) ) {
+			$d = json_decode( (string) $params['param_place_order_request4_open_api_d_t_o'], true );
+			$params['param_place_order_request4_open_api_d_t_o'] = array(
+				'product_items'   => isset( $d['product_items'] ) ? $d['product_items'] : null,
+				'ship_to_country' => isset( $d['logistics_address']['country'] ) ? $d['logistics_address']['country'] : null,
+				'address'         => '[hidden]',
+			);
+		}
+		return $params;
+	}
+
+	private static function log( $api, array $params, $code, $body, $result, $started ) {
+		if ( ! self::logging() || 0 === strpos( $api, '/auth/' ) ) {
+			return; // Sign-in exchanges carry secrets; never logged.
+		}
+		if ( ! self::$log_queue ) {
+			add_action( 'shutdown', array( __CLASS__, 'save_log' ) );
+		}
+		self::$log_queue[] = array(
+			'at'     => time(),
+			'api'    => $api,
+			'ms'     => (int) round( ( microtime( true ) - $started ) * 1000 ),
+			'params' => self::loggable_params( $params ),
+			'http'   => (int) $code,
+			'error'  => is_wp_error( $result ) ? $result->get_error_code() . ': ' . $result->get_error_message() : '',
+			'reply'  => mb_substr( (string) $body, 0, 6000 ),
+		);
+	}
+
+	public static function save_log() {
+		if ( ! self::$log_queue ) {
+			return;
+		}
+		$log = get_option( 'gsup_ae_log_entries' );
+		$log = is_array( $log ) ? $log : array();
+		$log = array_slice( array_merge( $log, self::$log_queue ), -30 );
+		update_option( 'gsup_ae_log_entries', $log, false );
+		self::$log_queue = array();
+	}
+
 	/** Whether the last place_order() asked AliExpress to pay (the older order method can't). */
 	public static $last_pay_requested = false;
 
@@ -110,6 +163,7 @@ class GSUP_AliExpress {
 		if ( is_wp_error( $url ) ) {
 			return $url;
 		}
+		$started  = microtime( true );
 		$response = wp_remote_post(
 			$url,
 			array(
@@ -118,9 +172,15 @@ class GSUP_AliExpress {
 			)
 		);
 		if ( is_wp_error( $response ) ) {
-			return new WP_Error( 'gsup_ae_network', 'Couldn’t reach AliExpress: ' . $response->get_error_message() );
+			$err = new WP_Error( 'gsup_ae_network', 'Couldn’t reach AliExpress: ' . $response->get_error_message() );
+			self::log( $api, $params, 0, '', $err, $started );
+			return $err;
 		}
-		return self::decode( 0 === strpos( $api, '/' ), wp_remote_retrieve_response_code( $response ), wp_remote_retrieve_body( $response ) );
+		$code   = wp_remote_retrieve_response_code( $response );
+		$body   = wp_remote_retrieve_body( $response );
+		$result = self::decode( 0 === strpos( $api, '/' ), $code, $body );
+		self::log( $api, $params, $code, $body, $result, $started );
+		return $result;
 	}
 
 	/** How many AliExpress calls to make at once in background jobs (filter gsup_ae_parallel; 1 = one at a time). */
@@ -176,6 +236,7 @@ class GSUP_AliExpress {
 			if ( ! $requests ) {
 				continue;
 			}
+			$started = microtime( true );
 			try {
 				$responses = call_user_func( array( $multi, 'request_multiple' ), $requests, $options );
 			} catch ( Exception $e ) {
@@ -185,9 +246,11 @@ class GSUP_AliExpress {
 				$r = isset( $responses[ $key ] ) ? $responses[ $key ] : null;
 				if ( is_object( $r ) && isset( $r->body ) && isset( $r->status_code ) ) {
 					$out[ $key ] = self::decode( false, (int) $r->status_code, (string) $r->body );
+					self::log( $chunk[ $key ][0], $chunk[ $key ][1], (int) $r->status_code, (string) $r->body, $out[ $key ], $started );
 				} else {
 					$msg         = $r instanceof Exception ? $r->getMessage() : 'no reply';
 					$out[ $key ] = new WP_Error( 'gsup_ae_network', 'Couldn’t reach AliExpress: ' . $msg );
+					self::log( $chunk[ $key ][0], $chunk[ $key ][1], 0, '', $out[ $key ], $started );
 				}
 			}
 		}

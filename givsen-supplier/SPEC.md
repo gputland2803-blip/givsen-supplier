@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.8.2 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.9.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -148,6 +148,15 @@ Bulk action `gsup_tidy` → `tab=tidy&ids=` (max 50). Options: titles (editable)
 
 ## Add to store: what to bring
 Per-user `gsup_import_prefs`: description `text` (`GSUP_Tidy::description_text()` — p/ul/ol/li/strong/em only, table rows "Name: value", boilerplate removed) / `clean` (`GSUP_Tidy::description()` + `GSUP_Creator::localize_images()`, max 15) / `empty`; `photos` 0–10 (default 10); `option_photos`; `desc_photos` (description images from AliExpress hosts, no GIFs, not already among the listing photos, max 8, appended to the gallery; not with `clean`); `specs`; `short`. Boilerplate: `GSUP_Tidy::is_boilerplate()` (filter `gsup_tidy_boilerplate`).
+
+## Delivery estimate
+`_gsup_ship_days` "min-max" on products/variations (freight quote). `GSUP_Eta` (off by default, `gsup_eta_show`): `woocommerce_single_product_summary` at 15 and `woocommerce_available_variation` (added to availability_html). Days + `gsup_eta_processing` (1); `gsup_eta_format` dates/days; `gsup_eta_business` skips weekends. Filter `gsup_eta_text`. Hidden when out of stock or no estimate.
+
+## Diagnostics
+`gsup_ae_log_entries` (last 30; not autoloaded), written at shutdown. Params without session/sign/app_key/tokens/code; order requests keep only product items and country. /auth calls never logged. Off with `gsup_ae_log` = no.
+
+## Tests
+`tests/run.sh`: PHP lint, extension syntax, `tests/test-*.php` (stand-ins for WordPress/WooCommerce), render of every settings section. GitHub Actions: `.github/workflows/tests.yml`.
 
 ## Customer-facing
 Tracking link `https://t.17track.net/en#nums=` (filter `gsup_tracking_url`). Carrier shown only via `GSUP_Orders::local_carrier()` (filter `gsup_local_carriers`); AST only when a local carrier is recognised (item `_gsup_in_ast`), otherwise the plugin's own display.

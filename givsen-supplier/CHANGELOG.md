@@ -1,5 +1,12 @@
 # Givsen Supplier — Changelog
 
+## 0.9.0 — 2026-09-26
+- **Delivery estimate on product pages** (Settings → Pricing, profit & delivery estimate; off until you turn it on): under the price, as dates ("Estimated delivery: Tue 1 Oct – Fri 4 Oct") or days ("Delivered in 3–6 business days"), from AliExpress's estimate for your shipping method plus your processing days, business days optional. Variable products show the range, then the chosen option's own estimate. The estimate is saved on Add to store, Change supplier and the weekly delivery quote — existing products get it at their next weekly quote.
+- **Diagnostics log** (Settings → AliExpress connection → Diagnostics): the last 30 AliExpress calls with their replies, "Copy all" to paste to whoever's helping. Access token, app key, signatures and customers' addresses are never kept. Saved once per page load; can be switched off.
+- **Photos**: product photos default to all (up to 10); the description's own photos (detail shots, size charts) can go into the gallery (on by default) — so choosing "wording only" loses no pictures.
+- **Safer description clean-up**: only short, self-contained lines are ever removed as seller notes, so one "visit our store" line can no longer take real product wording (or a whole description) with it. Links to AliExpress are removed along with their text.
+- **Automated tests** (`tests/run.sh`, also run on GitHub for every push and pull request).
+
 ## 0.8.2 — 2026-09-26
 Your store, not AliExpress's.
 - **Choose what Add to store brings in** ("What to bring into your store", remembered for next time):

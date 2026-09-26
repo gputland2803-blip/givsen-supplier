@@ -27,6 +27,8 @@ foreach (
 		'gsup_late_notrack_days', 'gsup_late_grace_days', 'gsup_delivered_email', 'gsup_complete_when',
 		'gsup_stock_min', 'gsup_stock_cap',
 		'gsup_reviews_publish', 'gsup_fallback_phone', // gsup_reviews_publish: left by 0.8.0–0.8.1.
+		'gsup_eta_show', 'gsup_eta_processing', 'gsup_eta_format', 'gsup_eta_business',
+		'gsup_ae_log', 'gsup_ae_log_entries',
 		'gsup_min_margin', 'gsup_backup_auto', 'gsup_backup_rise', 'gsup_fee_percent', 'gsup_fee_fixed',
 		'gsup_cbr_enabled', 'gsup_cbr_map', 'gsup_cbr_type_key', 'gsup_cbr_countries_key', 'gsup_cbr_type_value', 'gsup_cbr_format',
 	) as $gsup_opt
