@@ -221,20 +221,22 @@ class GSUP_Profit {
 				'source' => 'aliexpress',
 			);
 		}
-		$unit = $item->get_meta( GSUP_ITEM_UNIT_COST );
+		$unit   = $item->get_meta( GSUP_ITEM_UNIT_COST );
+		$source = 'estimate';
 		if ( '' === $unit || null === $unit ) {
 			$product = $item->get_product();
 			$unit    = $product ? self::unit_cost( $product->get_id() ) : null;
+			$source  = 'current'; // Today's product cost: changes with the sync.
 		}
 		if ( null === $unit ) {
 			return array(
 				'cost'   => null,
-				'source' => '',
+				'source' => 'current',
 			);
 		}
 		return array(
 			'cost'   => (float) $unit * $qty,
-			'source' => 'estimate',
+			'source' => $source,
 		);
 	}
 
@@ -311,6 +313,11 @@ class GSUP_Profit {
 			return $cached['summary'];
 		}
 		$s = self::order_summary( $order );
+		foreach ( $s ? $s['lines'] : array() as $line ) {
+			if ( 'current' === $line['source'] ) {
+				return $s; // Depends on today's product costs: work it out fresh each time.
+			}
+		}
 		$order->update_meta_data(
 			'_gsup_profit_cache',
 			array(

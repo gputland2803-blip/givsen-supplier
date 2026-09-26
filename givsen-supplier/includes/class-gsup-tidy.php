@@ -16,34 +16,67 @@ defined( 'ABSPATH' ) || exit;
 
 class GSUP_Tidy {
 
-	/** Sales filler to remove from titles (filter gsup_tidy_title_words). */
-	private static function filler() {
+	/**
+	 * Sales phrases removed wherever they appear (filter gsup_tidy_title_phrases).
+	 * Two words or more, so they can't be part of a real product name.
+	 */
+	private static function phrases() {
+		return (array) apply_filters(
+			'gsup_tidy_title_phrases',
+			array(
+				'new arrival', 'new arrivals', 'hot sale', 'hot sales', 'hot selling', 'best selling', 'best seller',
+				'free shipping', 'fast shipping', 'dropshipping', 'drop shipping', 'factory price', 'factory direct',
+				'high quality', 'top quality', 'good quality', 'limited time', 'in stock', 'brand new', 'dropship',
+			)
+		);
+	}
+
+	/**
+	 * Single words removed only from the start of a title, where AliExpress sellers stack them
+	 * ("2025 New Hot Sale Women's Dress") — never from the middle ("Hot Water Bottle").
+	 */
+	private static function leading_words() {
 		return (array) apply_filters(
 			'gsup_tidy_title_words',
-			array(
-				'new arrival', 'new arrivals', 'hot sale', 'hot selling', 'best selling', 'best seller', 'bestseller',
-				'free shipping', 'fast shipping', 'dropshipping', 'drop shipping', 'wholesale', 'factory price',
-				'high quality', 'top quality', 'good quality', 'cheap', 'promotion', 'limited time', 'in stock',
-				'brand new', 'original', 'genuine', 'official', 'latest', 'newest', 'new', 'hot', 'sale', 'ins',
-			)
+			array( 'new', 'hot', 'sale', 'newest', 'latest', 'cheap', 'original', 'genuine', 'official', 'wholesale', 'ins', 'fashion', 'trendy', 'popular', 'luxury' )
 		);
 	}
 
 	public static function title( $title ) {
 		$t = html_entity_decode( wp_strip_all_tags( (string) $title ), ENT_QUOTES );
-		$t = preg_replace( '/\b(19|20)\d{2}\b/', ' ', $t );                       // Years.
-		$t = preg_replace( '/\b\d+\s*(pcs?|pieces?|sets?|lots?)\b\/?/i', ' ', $t ); // "1PC", "2 pcs".
 		$t = preg_replace( '/[【】\[\]{}]+/u', ' ', $t );
-		$words = self::filler();
+		$phrases = self::phrases();
 		usort(
-			$words,
+			$phrases,
 			function ( $a, $b ) {
 				return strlen( $b ) - strlen( $a );
 			}
 		);
-		foreach ( $words as $w ) {
-			$t = preg_replace( '/(?<![\p{L}\p{N}])' . preg_quote( $w, '/' ) . '(?![\p{L}\p{N}])/iu', ' ', $t );
+		foreach ( $phrases as $w ) {
+			$t = preg_replace( '/(?<![\p{L}\p{N}])' . preg_quote( $w, '/' ) . '(?![\p{L}\p{N}])/iu', ' ¤ ', $t );
 		}
+		// A leading run of two or more fillers — years ("2025"), piece counts ("1PC"), filler words, phrases —
+		// is seller padding. A single one may be part of the name ("Hot Water Bottle", "2000 Lumen").
+		$lead  = array_map( 'strtolower', self::leading_words() );
+		$words = preg_split( '/\s+/', trim( $t ), -1, PREG_SPLIT_NO_EMPTY );
+		$run   = 0;
+		foreach ( $words as $word ) {
+			$w = strtolower( trim( $word, ',.;:-/|+&!' ) );
+			if ( '' === $w || '¤' === $w || in_array( $w, $lead, true ) || preg_match( '/^(19|20)\d{2}$/', $w ) || preg_match( '/^\d+(pcs?|pieces?)$/', $w ) ) {
+				++$run;
+				continue;
+			}
+			break;
+		}
+		$fillers = count( array_filter( array_slice( $words, 0, $run ), function ( $w ) {
+			return '' !== trim( $w, ',.;:-/|+&!' );
+		} ) );
+		if ( $fillers >= 2 && count( $words ) - $run >= 2 ) {
+			$words = array_slice( $words, $run );
+		}
+		$t = str_replace( '¤', ' ', implode( ' ', $words ) );
+		// Piece counts tacked on at the end ("… Gift Set 3pcs").
+		$t = preg_replace( '/[\s,\/-]+\d+\s*(pcs?|pieces?)\s*$/i', '', $t );
 		// Drop repeated words, keeping the first.
 		$seen = array();
 		$out  = array();

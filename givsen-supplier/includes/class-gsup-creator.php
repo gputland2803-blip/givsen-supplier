@@ -332,13 +332,31 @@ class GSUP_Creator {
 	 * @return array{0:callable,1:callable} name_of( $name ), value_of( $name, $value )
 	 */
 	private static function renamer( array $names, array $chosen, array $opts ) {
+		// First free choice of: what you typed, the AliExpress original, then the original numbered.
+		$unique = function ( $wanted, $original, array &$taken, $key_of ) {
+			$candidates = array( str_replace( '|', '/', trim( (string) $wanted ) ), str_replace( '|', '/', trim( (string) $original ) ) );
+			for ( $i = 2; $i < 50; $i++ ) {
+				$candidates[] = $candidates[1] . ' ' . $i;
+			}
+			foreach ( $candidates as $c ) {
+				$k = $key_of( $c );
+				if ( '' !== $c && '' !== $k && ! isset( $taken[ $k ] ) ) {
+					$taken[ $k ] = true;
+					return $c;
+				}
+			}
+			return $original;
+		};
+		$name_key = function ( $v ) {
+			return sanitize_title( $v ); // WooCommerce keys variation attributes by this.
+		};
+		$value_key = function ( $v ) {
+			return function_exists( 'mb_strtolower' ) ? mb_strtolower( $v ) : strtolower( $v );
+		};
 		$name_map = array();
 		$used     = array();
 		foreach ( $names as $n ) {
-			$new = isset( $opts['names'][ $n ] ) ? trim( (string) $opts['names'][ $n ] ) : '';
-			$new = '' !== $new && ! isset( $used[ strtolower( $new ) ] ) ? $new : $n;
-			$used[ strtolower( $new ) ] = true;
-			$name_map[ $n ]             = str_replace( '|', '/', $new );
+			$name_map[ $n ] = $unique( isset( $opts['names'][ $n ] ) ? $opts['names'][ $n ] : '', $n, $used, $name_key );
 		}
 		$value_map = array();
 		foreach ( $names as $n ) {
@@ -348,10 +366,7 @@ class GSUP_Creator {
 					if ( $p['name'] !== $n || isset( $value_map[ $n ][ $p['value'] ] ) ) {
 						continue;
 					}
-					$new = isset( $opts['values'][ $n ][ $p['value'] ] ) ? trim( (string) $opts['values'][ $n ][ $p['value'] ] ) : '';
-					$new = '' !== $new && ! isset( $taken[ strtolower( $new ) ] ) ? $new : $p['value'];
-					$taken[ strtolower( $new ) ] = true;
-					$value_map[ $n ][ $p['value'] ] = str_replace( '|', '/', $new );
+					$value_map[ $n ][ $p['value'] ] = $unique( isset( $opts['values'][ $n ][ $p['value'] ] ) ? $opts['values'][ $n ][ $p['value'] ] : '', $p['value'], $taken, $value_key );
 				}
 			}
 		}

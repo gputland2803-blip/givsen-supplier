@@ -635,11 +635,11 @@ class GSUP_Admin_Page {
 			echo '<table class="widefat striped gsup-rename"><tbody>';
 			$ni = 0;
 			foreach ( $opt_names as $oname => $ovalues ) {
-				echo '<tr><th scope="row"><input type="hidden" name="rn_name_orig[' . $ni . ']" value="' . esc_attr( $oname ) . '"><input type="text" name="rn_name[' . $ni . ']" value="' . esc_attr( GSUP_Tidy::option_name( $oname ) ) . '" aria-label="Option name"></th><td>';
+				echo '<tr><th scope="row"><input type="hidden" name="rn_name_orig[' . $ni . ']" value="' . esc_attr( base64_encode( $oname ) ) . '"><input type="text" name="rn_name[' . $ni . ']" value="' . esc_attr( GSUP_Tidy::option_name( $oname ) ) . '" aria-label="Option name"></th><td>';
 				$vi = 0;
 				foreach ( array_keys( $ovalues ) as $ovalue ) {
 					$tv = GSUP_Tidy::option_value( $ovalue );
-					echo '<label class="gsup-rename-value"><input type="hidden" name="rn_value_orig[' . $ni . '][' . $vi . ']" value="' . esc_attr( $ovalue ) . '"><input type="text" name="rn_value[' . $ni . '][' . $vi . ']" value="' . esc_attr( $tv ) . '" title="' . esc_attr( 'AliExpress: ' . $ovalue ) . '"></label> ';
+					echo '<label class="gsup-rename-value"><input type="hidden" name="rn_value_orig[' . $ni . '][' . $vi . ']" value="' . esc_attr( base64_encode( $ovalue ) ) . '"><input type="text" name="rn_value[' . $ni . '][' . $vi . ']" value="' . esc_attr( $tv ) . '" title="' . esc_attr( 'AliExpress: ' . $ovalue ) . '"></label> ';
 					++$vi;
 				}
 				echo '</td></tr>';
@@ -1157,15 +1157,23 @@ class GSUP_Admin_Page {
 		$value_orig = isset( $_POST['rn_value_orig'] ) && is_array( $_POST['rn_value_orig'] ) ? wp_unslash( $_POST['rn_value_orig'] ) : array();
 		$value_new  = isset( $_POST['rn_value'] ) && is_array( $_POST['rn_value'] ) ? wp_unslash( $_POST['rn_value'] ) : array();
 		// phpcs:enable
+		// Originals are only used to look up AliExpress's own text, never stored or shown.
+		$decode = function ( $v ) {
+			$d = is_string( $v ) ? base64_decode( $v, true ) : false;
+			return false === $d ? '' : $d;
+		};
 		foreach ( $name_orig as $i => $orig ) {
-			$orig = sanitize_text_field( $orig );
+			$orig = $decode( $orig );
+			if ( '' === $orig ) {
+				continue;
+			}
 			if ( isset( $name_new[ $i ] ) ) {
 				$opts['names'][ $orig ] = mb_substr( sanitize_text_field( $name_new[ $i ] ), 0, 100 );
 			}
 			if ( isset( $value_orig[ $i ] ) && is_array( $value_orig[ $i ] ) ) {
 				foreach ( $value_orig[ $i ] as $j => $vorig ) {
 					if ( isset( $value_new[ $i ][ $j ] ) ) {
-						$opts['values'][ $orig ][ sanitize_text_field( $vorig ) ] = mb_substr( sanitize_text_field( $value_new[ $i ][ $j ] ), 0, 150 );
+						$opts['values'][ $orig ][ $decode( $vorig ) ] = mb_substr( sanitize_text_field( $value_new[ $i ][ $j ] ), 0, 150 );
 					}
 				}
 			}
