@@ -128,9 +128,12 @@ Drops the import list table and the plugin's options. Keeps product links and or
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
 
+## Settings screen
+`tab=settings&section=<overview|aliexpress|ordering|pricing|sync|countries|extension>` (default overview; `gsup_settings_url()`). Side menu with a status badge per section (tab row under 960px). Overview: "Needs your attention" (AliExpress not connected, import list waiting, Processing orders with auto state failed/partial, low-margin products, last sync stopped) and one card per section. Every save/connect/test action returns to its own section. Save forms (`.gsup-save-form`) warn on leaving with unsaved changes.
+
 ## Regression checklist
 Run after any change, on a staging copy with MySQL.
-1. Activate → WooCommerce → Givsen Supplier opens; Settings shows a 40-character key.
+1. Activate → WooCommerce → Givsen Supplier opens; Settings → Overview shows every section; Chrome extension section shows a 40-character key. Each section's badge matches its state; each Save lands back on the same section; editing a field then clicking another section asks before leaving.
 2. Simple product → Supplier tab → paste a full AliExpress link as product ID → Update → field shows just the number, "Open on AliExpress" works.
 3. Type nonsense in the product ID → Update → error notice, previous ID kept.
 4. Variable product → Variations → fill SKU / ships-from / option on one variation → Save changes → values persist after reload.

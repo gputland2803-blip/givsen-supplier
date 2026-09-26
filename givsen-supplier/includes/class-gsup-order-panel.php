@@ -323,7 +323,7 @@ class GSUP_Order_Panel {
 		);
 		$line = isset( $labels[ $state ] ) ? $labels[ $state ] : '';
 		if ( '' === $line && $unplaced && 'processing' === $order->get_status() ) {
-			$line = GSUP_Orders::enabled() ? 'Not placed on AliExpress yet.' : 'Automatic ordering is off (Givsen Supplier → Settings).';
+			$line = GSUP_Orders::enabled() ? 'Not placed on AliExpress yet.' : 'Automatic ordering is off (WooCommerce → Givsen Supplier → Settings → Ordering & tracking).';
 		}
 		if ( '' === $line && ! $untrack ) {
 			return;

@@ -298,6 +298,15 @@ function gsup_admin_url( $args = array() ) {
 	return add_query_arg( array_merge( array( 'page' => 'gsup' ), $args ), admin_url( 'admin.php' ) );
 }
 
+/** A Settings section, e.g. gsup_settings_url( 'ordering' ). */
+function gsup_settings_url( $section = '', $args = array() ) {
+	$base = array( 'tab' => 'settings' );
+	if ( '' !== $section ) {
+		$base['section'] = $section;
+	}
+	return gsup_admin_url( array_merge( $base, $args ) );
+}
+
 function gsup_flash( $message, $type = 'success' ) {
 	$key     = 'gsup_flash_' . get_current_user_id();
 	$queue   = get_transient( $key );

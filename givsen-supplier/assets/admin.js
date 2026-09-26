@@ -64,4 +64,21 @@
 			setTimeout(function () { btn.disabled = true; btn.textContent = 'Creating product and copying photos…'; }, 0);
 		}
 	});
+
+	// Settings: warn before leaving a section with unsaved changes.
+	var dirty = null;
+	document.addEventListener('input', function (e) {
+		var form = e.target.closest ? e.target.closest('.gsup-save-form') : null;
+		if (form) { dirty = form; }
+	});
+	document.addEventListener('change', function (e) {
+		var form = e.target.closest ? e.target.closest('.gsup-save-form') : null;
+		if (form) { dirty = form; }
+	});
+	document.addEventListener('submit', function (e) {
+		if (e.target === dirty) { dirty = null; }
+	});
+	window.addEventListener('beforeunload', function (e) {
+		if (dirty) { e.preventDefault(); e.returnValue = ''; }
+	});
 })();

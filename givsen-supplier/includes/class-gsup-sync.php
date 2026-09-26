@@ -466,7 +466,7 @@ class GSUP_Sync {
 			}
 			$lines[] = '';
 		}
-		$lines[] = 'Details: ' . gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-sync';
+		$lines[] = 'Details: ' . gsup_settings_url( 'sync' );
 
 		$to = get_option( 'gsup_sync_email', get_option( 'admin_email' ) );
 		wp_mail(

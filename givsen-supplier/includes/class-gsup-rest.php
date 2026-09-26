@@ -75,7 +75,7 @@ class GSUP_REST {
 				$result = 'connected';
 			}
 		}
-		wp_safe_redirect( add_query_arg( 'gsup_ae', $result, gsup_admin_url( array( 'tab' => 'settings' ) ) ) );
+		wp_safe_redirect( add_query_arg( 'gsup_ae', $result, gsup_settings_url( 'aliexpress' ) ) );
 		exit;
 	}
 
