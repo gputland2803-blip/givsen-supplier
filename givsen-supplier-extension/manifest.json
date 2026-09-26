@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Givsen Supplier",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Adds an \"Add to Givsen\" button to AliExpress product pages. Sends the product and the selected option to your Givsen Supplier import list.",
   "minimum_chrome_version": "111",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },

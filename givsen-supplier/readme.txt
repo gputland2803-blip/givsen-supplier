@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.10.2
+Stable tag: 0.11.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -32,6 +32,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.11.0 =
+* Save a backup supplier straight from AliExpress with the Chrome extension (0.5.0): options matched automatically, cost compared; never switches supplier or changes prices.
 
 = 0.10.2 =
 * Descriptions from the product page: with Chrome extension 0.4.2, AliExpress's "AI overview of item", written description and specifications are captured as you add a product and used when the listing's description is only images.

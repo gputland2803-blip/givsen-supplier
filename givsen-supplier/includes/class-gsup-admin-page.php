@@ -503,7 +503,7 @@ class GSUP_Admin_Page {
 		echo '<p>Paste these two values into the Givsen Supplier Chrome extension’s settings (click the <strong>G</strong> icon in Chrome’s toolbar), then click <strong>Save &amp; test</strong>.</p>';
 		echo '<table class="form-table gsup-settings"><tbody>';
 		echo '<tr><th scope="row">Site address</th><td><code>' . esc_html( $site ) . '</code> ' . gsup_copy_button( $site ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		echo '<tr><th scope="row">Connection key</th><td><code class="gsup-key">' . esc_html( $key ) . '</code> ' . gsup_copy_button( $key ) . '<p class="description">Anyone with this key can add items to your import list (nothing else). Keep it private.</p></td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo '<tr><th scope="row">Connection key</th><td><code class="gsup-key">' . esc_html( $key ) . '</code> ' . gsup_copy_button( $key ) . '<p class="description">Anyone with this key can add items to your import list, see which store products are linked, and save backup suppliers for them (never switching suppliers or changing prices). Keep it private.</p></td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo '</tbody></table>';
 		echo '<h3>Replace the key</h3><p class="gsup-meta">Only if you think someone else has it. The extension stops working until you paste the new key into it.</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';

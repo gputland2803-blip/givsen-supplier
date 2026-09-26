@@ -17,7 +17,7 @@ async function hmacHex(key, message) {
   return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function callStore(route, method, payload, settings) {
+async function callStore(route, method, payload, settings, query) {
   const { site, key } = settings || (await getSettings());
   if (!site || !key) {
     return { ok: false, message: 'Not set up yet. Click the Givsen Supplier icon in Chrome’s toolbar and paste your site address and connection key.' };
@@ -32,7 +32,8 @@ async function callStore(route, method, payload, settings) {
   const signature = await hmacHex(key, ts + '.' + method + '.' + '/' + route + '.' + body);
   let res;
   try {
-    res = await fetch(site + API_BASE + route, {
+    // The query string (e.g. a search) isn't part of the signature; the endpoint is.
+    res = await fetch(site + API_BASE + route + (query ? '&' + query : ''), {
       method,
       credentials: 'omit',
       cache: 'no-store',
@@ -49,7 +50,7 @@ async function callStore(route, method, payload, settings) {
   try { data = await res.json(); } catch (e) { /* not JSON */ }
   if (!res.ok || !data || data.ok !== true) {
     const msg = data && data.message ? data.message : 'The site answered with an error (' + res.status + ').';
-    return { ok: false, message: msg, status: res.status };
+    return { ok: false, message: msg, status: res.status, code: data && data.code, data: data && data.data };
   }
   return Object.assign({ ok: true }, data);
 }
@@ -58,6 +59,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return false;
   if (msg.type === 'gsup:import') {
     callStore('import', 'POST', msg.payload).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'gsup:linked') {
+    callStore('linked-products', 'GET', null, null, 'search=' + encodeURIComponent(msg.search || '')).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'gsup:backup') {
+    callStore('backup', 'POST', msg.payload).then(sendResponse);
     return true;
   }
   if (msg.type === 'gsup:categories') {

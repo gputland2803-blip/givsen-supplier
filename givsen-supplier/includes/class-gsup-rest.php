@@ -47,6 +47,24 @@ class GSUP_REST {
 				'permission_callback' => array( __CLASS__, 'verify' ),
 			)
 		);
+		register_rest_route(
+			self::NS,
+			'/linked-products',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'linked_products' ),
+				'permission_callback' => array( __CLASS__, 'verify' ),
+			)
+		);
+		register_rest_route(
+			self::NS,
+			'/backup',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'backup' ),
+				'permission_callback' => array( __CLASS__, 'verify' ),
+			)
+		);
 		// AliExpress sends you back here after you approve the connection. Protected by a one-time state code.
 		register_rest_route(
 			self::NS,
@@ -139,6 +157,44 @@ class GSUP_REST {
 				'categories' => $list,
 			)
 		);
+	}
+
+	/** Linked store products matching a search, for "Use as backup for a product in your store". */
+	public static function linked_products( WP_REST_Request $request ) {
+		$search = mb_substr( sanitize_text_field( (string) $request->get_param( 'search' ) ), 0, 100 );
+		return rest_ensure_response(
+			array(
+				'ok'       => true,
+				'products' => GSUP_Remap::linked_products( $search ),
+			)
+		);
+	}
+
+	/** Save this page's listing as a store product's backup supplier. Never switches supplier or changes prices. */
+	public static function backup( WP_REST_Request $request ) {
+		$data = $request->get_json_params();
+		if ( ! is_array( $data ) ) {
+			return new WP_Error( 'gsup_bad_json', 'Expected JSON.', array( 'status' => 400 ) );
+		}
+		$wc_id = isset( $data['wc_product_id'] ) ? absint( $data['wc_product_id'] ) : 0;
+		$ae    = gsup_parse_product_id( isset( $data['product_id'] ) ? (string) $data['product_id'] : '' );
+		$ship  = gsup_sanitize_ship_from( isset( $data['ship_from'] ) ? (string) $data['ship_from'] : '' );
+		if ( ! $wc_id || '' === $ae ) {
+			return new WP_Error( 'gsup_bad_request', 'Choose a product in your store first.', array( 'status' => 400 ) );
+		}
+		if ( ! GSUP_AliExpress::is_connected() ) {
+			return new WP_Error( 'gsup_ae_not_connected', 'Connect AliExpress in the plugin’s settings first — the listing’s options are read from AliExpress.', array( 'status' => 400 ) );
+		}
+		$listing = GSUP_AliExpress::get_product( $ae, gsup_quote_country( $ship ) );
+		if ( is_wp_error( $listing ) ) {
+			return new WP_Error( $listing->get_error_code(), $listing->get_error_message(), array( 'status' => 400 ) );
+		}
+		$result = GSUP_Remap::save_backup_from_listing( $wc_id, $listing, $ship, ! empty( $data['replace'] ) );
+		if ( is_wp_error( $result ) ) {
+			$extra = $result->get_error_data();
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array_merge( array( 'status' => 409 ), is_array( $extra ) ? $extra : array() ) );
+		}
+		return rest_ensure_response( array_merge( array( 'ok' => true ), $result ) );
 	}
 
 	public static function import( WP_REST_Request $request ) {

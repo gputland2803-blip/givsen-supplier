@@ -23,5 +23,8 @@ Needs the **Givsen Supplier** WordPress plugin on the store.
 3. Click **Send to import list**. Repeat for each option you want (e.g. Red/Australia, Blue/Australia).
 4. In WordPress, link each import-list row to the matching product or variation.
 
+## Save a backup supplier
+On a listing that sells the same thing as one of your products (e.g. a second seller), open the **Add to Givsen** card, pick the warehouse on the page, then under **Use as backup for a product in your store** search for your product and click **Save as backup supplier**. Its options are matched to yours automatically; nothing in your store changes except the saved backup. If the main listing disappears, runs out or gets much dearer, the daily sync switches over.
+
 ## Updating
 Replace the folder's contents with the new version, then click the reload arrow on the extension in `chrome://extensions` and refresh any open AliExpress tabs.

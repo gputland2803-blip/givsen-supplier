@@ -31,6 +31,17 @@
     '.msg.ok{background:#edfaef;color:#1e6b34}',
     '.msg.err{background:#fcf0f1;color:#b32d2e}',
     '.msg a{color:inherit;font-weight:600}',
+    '.bk{margin-top:12px;padding-top:10px;border-top:1px solid #e0e0e0}',
+    '.bk h4{margin:0 0 6px;font-size:13px}',
+    '.bk .list{max-height:150px;overflow:auto;border:1px solid #c3c4c7;border-radius:6px;margin-top:4px}',
+    '.bk .opt{padding:6px 8px;cursor:pointer;border-bottom:1px solid #f0f0f1;font-size:12px}',
+    '.bk .opt:hover,.bk .opt.sel{background:#f0f6fc}',
+    '.bk .opt small{display:block;color:#646970}',
+    '.bk .go{margin-top:8px;background:#fff;color:#111;border:1px solid #111;border-radius:6px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer}',
+    '.bk .go[disabled]{opacity:.5;cursor:default}',
+    '.bk .note{font-size:12px;color:#996800;margin-top:6px}',
+    '.bk table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}',
+    '.bk td{padding:2px 4px;border-bottom:1px solid #f0f0f1}',
   ].join('');
 
   function isItemPage() {
@@ -288,6 +299,7 @@
     actions.appendChild(cancel);
     actions.appendChild(send);
     card.appendChild(actions);
+    card.appendChild(backupBox(productId));
     shadow.appendChild(card);
   }
 
@@ -302,6 +314,127 @@
     var m = el('div', { class: 'msg ' + (ok ? 'ok' : 'err') });
     nodes.forEach(function (n) { m.appendChild(typeof n === 'string' ? document.createTextNode(n) : n); });
     card.appendChild(m);
+  }
+
+  /* ---------- Use as backup for a product in your store ---------- */
+
+  function backupBox(productId) {
+    var box = el('div', { class: 'bk' });
+    box.appendChild(el('h4', {}, 'Use as backup for a product in your store'));
+    var search = el('input', { type: 'search', placeholder: 'Search your linked products…', 'aria-label': 'Search your linked products' });
+    search.style.cssText = 'width:100%;padding:7px 9px;border:1px solid #c3c4c7;border-radius:6px;font-size:13px';
+    var list = el('div', { class: 'list', role: 'listbox' });
+    var note = el('div', { class: 'note' });
+    var go = el('button', { class: 'go', type: 'button' }, 'Save as backup supplier');
+    var out = el('div', {});
+    go.disabled = true;
+    box.appendChild(search); box.appendChild(list); box.appendChild(note); box.appendChild(go); box.appendChild(out);
+
+    var chosen = null;
+    var confirmReplace = false;
+    var timer = null;
+
+    function choose(p, row) {
+      chosen = p;
+      confirmReplace = false;
+      Array.prototype.forEach.call(list.children, function (c) { c.classList.remove('sel'); });
+      row.classList.add('sel');
+      out.textContent = '';
+      if (p.ae_product_id === productId) {
+        note.textContent = 'This listing is already that product’s main supplier.';
+        go.disabled = true;
+      } else {
+        note.textContent = p.has_backup ? 'This replaces the current backup (ID ' + p.backup_id + ').' : '';
+        go.disabled = false;
+      }
+      go.textContent = 'Save as backup supplier';
+    }
+
+    function load(q) {
+      list.textContent = '';
+      list.appendChild(el('div', { class: 'opt' }, 'Loading…'));
+      try {
+        chrome.runtime.sendMessage({ type: 'gsup:linked', search: q }, function (res) {
+          list.textContent = '';
+          if (chrome.runtime.lastError || !res || !res.ok) {
+            list.appendChild(el('div', { class: 'opt' }, (res && res.message) || 'Couldn’t load your products.'));
+            return;
+          }
+          if (!res.products.length) {
+            list.appendChild(el('div', { class: 'opt' }, 'No linked products match.'));
+            return;
+          }
+          res.products.forEach(function (p) {
+            var row = el('div', { class: 'opt', role: 'option' }, p.name);
+            var sub = 'AliExpress ' + p.ae_product_id + (p.ships_from ? ' · ships from ' + p.ships_from : '') + (p.has_backup ? ' · has a backup (' + p.backup_id + ')' : '') + (p.ae_product_id === productId ? ' · this listing is its supplier' : '');
+            row.appendChild(el('small', {}, sub));
+            row.addEventListener('click', function () { choose(p, row); });
+            list.appendChild(row);
+          });
+        });
+      } catch (e) {
+        list.textContent = '';
+        list.appendChild(el('div', { class: 'opt' }, 'The extension was updated or restarted. Refresh this page and try again.'));
+      }
+    }
+    search.addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () { load(search.value.trim()); }, 300);
+    });
+    load('');
+
+    go.addEventListener('click', function () {
+      if (!chosen) return;
+      if (chosen.has_backup && !confirmReplace) {
+        confirmReplace = true;
+        note.textContent = 'This replaces the current backup (ID ' + chosen.backup_id + '). Click again to confirm.';
+        go.textContent = 'Confirm: replace the backup';
+        return;
+      }
+      var ship = value('ship_from');
+      go.disabled = true;
+      go.textContent = 'Matching options…';
+      chrome.runtime.sendMessage({ type: 'gsup:backup', payload: { wc_product_id: chosen.id, product_id: productId, ship_from: ship, replace: confirmReplace } }, function (res) {
+        go.textContent = 'Save as backup supplier';
+        go.disabled = false;
+        out.textContent = '';
+        if (chrome.runtime.lastError || !res) {
+          out.appendChild(el('div', { class: 'msg err' }, 'The extension was updated or restarted. Refresh this page and try again.'));
+          return;
+        }
+        if (!res.ok) {
+          if (res.code === 'gsup_backup_exists' && res.data && res.data.current_backup) {
+            chosen.has_backup = true; chosen.backup_id = res.data.current_backup; confirmReplace = false;
+            note.textContent = 'This replaces the current backup (ID ' + chosen.backup_id + '). Click Save again, then confirm.';
+          }
+          out.appendChild(el('div', { class: 'msg err' }, res.message || 'Something went wrong.'));
+          return;
+        }
+        var m = el('div', { class: 'msg ok' });
+        m.appendChild(document.createTextNode('Saved as backup: ' + res.matched + ' of ' + res.total + ' options matched' + (res.replaced ? ' (replaced ' + res.replaced + ')' : '') + '. '));
+        if (res.unmatched && res.unmatched.length) {
+          m.appendChild(document.createTextNode('Not matched: ' + res.unmatched.join('; ') + '. '));
+        }
+        if (res.cost && (res.cost.current || res.cost.backup)) {
+          m.appendChild(document.createTextNode('Cost with delivery — now ' + res.cost.current.toFixed(2) + ', backup ' + res.cost.backup.toFixed(2) + ' ' + (res.cost.currency || '') + '. '));
+        }
+        m.appendChild(link(res.supplier_url, 'Open the Supplier tab'));
+        out.appendChild(m);
+        if (res.cost && res.cost.items && res.cost.items.length > 1) {
+          var t = el('table', {});
+          res.cost.items.forEach(function (r) {
+            var tr = el('tr', {});
+            tr.appendChild(el('td', {}, r.name));
+            tr.appendChild(el('td', {}, r.current == null ? '—' : r.current.toFixed(2)));
+            tr.appendChild(el('td', {}, r.backup == null ? '—' : '→ ' + r.backup.toFixed(2)));
+            t.appendChild(tr);
+          });
+          out.appendChild(t);
+        }
+        chosen.has_backup = true; chosen.backup_id = productId; confirmReplace = false;
+      });
+    });
+    return box;
   }
 
   function link(href, text) {

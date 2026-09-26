@@ -1,5 +1,8 @@
 # Givsen Supplier (Chrome extension) — Changelog
 
+## 0.5.0 — 2026-09-26
+- **Use as backup for a product in your store** on the Add to Givsen card: search your linked products (name, AliExpress ID, ships-from, whether it has a backup), then "Save as backup supplier" with this listing and the ships-from chosen on the page. Disabled when this listing is already that product's supplier; replacing an existing backup asks you to click again to confirm. Shows options matched, the ones that weren't, cost now vs. backup, and a link to the product's Supplier tab. Needs plugin 0.11.0.
+
 ## 0.4.2 — 2026-09-26
 - Sends the product's words from the page — AliExpress's "AI overview of item", any written description, and the specifications — so image-only listings still get a starting description in your store (plugin 0.10.2+). The card shows how many words it found.
 

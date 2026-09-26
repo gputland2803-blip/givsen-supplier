@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.10.2 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.11.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -46,6 +46,8 @@ Empty captured values never overwrite existing ones.
 Namespace `givsen-supplier/v1`. Every request sends `X-Gsup-Timestamp` (unix seconds) and `X-Gsup-Signature` = hex HMAC-SHA256 of `"<timestamp>.<raw body>"` with the connection key (option `gsup_secret`). Older than 5 minutes → refused.
 - `GET /ping` → `{ok, site, version}`
 - `GET /categories` → `{ok, categories:[{id, name (full path), depth}]}`
+- `GET /linked-products?search=` → `{ok, products:[{id, name, ae_product_id, ships_from, has_backup, backup_id, edit_url}]}` (linked products, up to 20, title search). v2 signature only; the query string isn't signed.
+- `POST /backup` body `{wc_product_id, product_id, ship_from, replace}` → `GSUP_Remap::save_backup_from_listing()`: refuses same-as-main (`gsup_same_as_main`), existing backup without `replace` (`gsup_backup_exists`, `data.current_backup`, HTTP 409), no options in that warehouse (`gsup_no_warehouse`; empty ship_from = the listing's only warehouse), nothing matched (`gsup_no_match`). Matches with `GSUP_Remap::auto_match()` over the warehouse's SKUs; saves `_gsup_backup` {product_id, ship, map, saved_at} (unmatched options simply absent from map); never switches or reprices. Returns `{ok, matched, total, unmatched:[names], cost:{current, backup, currency, items:[{name, current, backup}]}, replaced, supplier_url}` — current = `GSUP_Profit::unit_cost()`, backup = SKU price + one delivery quote. v2 signature only.
 - `POST /import` body `{product_id | url, sku_id, ship_from, option, title, image, price, currency, category_ids[], page_text}` (page_text: the page's AI overview, description and specifications as plain text, max 8000) → `{ok, id, duplicate, status, product_id, sku_id, ship_from, option, title, api_note, categories[], linked:[{id,name,edit_url}], import_list}`. Unknown category IDs are dropped.
 `ship_from` accepts a code (AU) or a name as AliExpress shows it (Australia, United States).
 
@@ -232,3 +234,7 @@ Run after any change, on a staging copy with MySQL.
 45. Settings → Country restrictions → Look at a product with CBR set by hand → its keys are listed and match step 2.
 46. Turn on → Add to store (AU warehouse) → product has "Shown to: AU". Apply to linked products → summary counts; products with own restriction kept unless "replace" ticked.
 47. Repeat 40–44 with HPOS on.
+48. Extension 0.5.0 on a listing → "Use as backup for a product in your store" lists linked products (search narrows it); the product whose supplier this listing is shows the button disabled with "already that product's main supplier".
+49. Pick a product with no backup → Save → "N of M options matched", unmatched names, cost now vs backup, link opens the Supplier tab showing the backup and "N option(s) not matched — review" (link opens Change supplier with the listing). Prices and main supplier unchanged.
+50. Pick a product that has a backup → note "This replaces the current backup (ID …)"; first click only asks to confirm, second click replaces.
+51. Choose a warehouse on the page the listing doesn't… (e.g. US when only AU exists via typed ships-from) → "no options shipping from …". An older extension (0.4.x) can still send to the import list but can't use /backup.

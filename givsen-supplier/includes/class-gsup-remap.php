@@ -44,6 +44,164 @@ class GSUP_Remap {
 		return wp_nonce_url( admin_url( 'admin-post.php?action=gsup_backup_remove&product=' . (int) $product_id ), 'gsup_backup_remove_' . (int) $product_id );
 	}
 
+	/**
+	 * Save a listing as a product's backup supplier, matching its options automatically (the extension's
+	 * "Save as backup supplier"). Never switches the supplier and never changes prices.
+	 *
+	 * @param array  $new     Listing from GSUP_AliExpress::get_product().
+	 * @param string $ship    Warehouse chosen on the page ('' = the listing's only warehouse).
+	 * @param bool   $replace Replace an existing backup (the extension asks you to confirm first).
+	 * @return array|WP_Error {matched, total, unmatched: [names], cost: {current, backup, items: [...]}, replaced, supplier_url}
+	 */
+	public static function save_backup_from_listing( $product_id, array $new, $ship, $replace ) {
+		$product = wc_get_product( $product_id );
+		if ( ! $product || $product->is_type( 'variation' ) ) {
+			return new WP_Error( 'gsup_no_product', 'That product isn’t in your store any more.' );
+		}
+		$main = (string) get_post_meta( $product_id, GSUP_META_PRODUCT, true );
+		if ( '' === $main ) {
+			return new WP_Error( 'gsup_not_linked', 'That product isn’t linked to AliExpress yet — link it first.' );
+		}
+		if ( (string) $new['product_id'] === $main ) {
+			return new WP_Error( 'gsup_same_as_main', 'This listing is already that product’s main supplier.' );
+		}
+		$old = self::backup( $product_id );
+		if ( $old && ! $replace ) {
+			return new WP_Error( 'gsup_backup_exists', 'That product already has a backup supplier (' . $old['product_id'] . '). Confirm to replace it.', array( 'current_backup' => (string) $old['product_id'] ) );
+		}
+		$groups = GSUP_Creator::by_warehouse( $new );
+		if ( '' === $ship && 1 === count( $groups ) ) {
+			$ship = (string) array_key_first( $groups );
+		}
+		if ( ! isset( $groups[ $ship ] ) ) {
+			$have = array();
+			foreach ( array_keys( $groups ) as $code ) {
+				$have[] = GSUP_Creator::warehouse_label( (string) $code );
+			}
+			return new WP_Error( 'gsup_no_warehouse', 'This listing has no options shipping from ' . GSUP_Creator::warehouse_label( $ship ) . ( $have ? ' (it ships from: ' . implode( ', ', $have ) . '). Pick the warehouse on the page first.' : '.' ) );
+		}
+		$skus    = $groups[ $ship ];
+		$items   = self::targets( $product );
+		$matches = self::auto_match( $items, $skus );
+		if ( ! $matches ) {
+			return new WP_Error( 'gsup_no_match', 'None of the product’s options could be matched to this listing — use Change supplier… on the product to match them by hand.' );
+		}
+		$map       = array();
+		$unmatched = array();
+		foreach ( $items as $item ) {
+			if ( isset( $matches[ $item->get_id() ] ) ) {
+				$map[ $item->get_id() ] = (string) $matches[ $item->get_id() ]['sku'];
+			} else {
+				$unmatched[] = self::item_label( $item );
+			}
+		}
+		// Cost now vs. the backup, for the matched options (the backup's delivery quoted once).
+		$quote = GSUP_Creator::quote( $new['product_id'], reset( $map ), $ship );
+		$fee   = is_wp_error( $quote ) || ! $quote ? 0.0 : (float) $quote['fee'];
+		$rows  = array();
+		$now   = 0.0;
+		$then  = 0.0;
+		foreach ( $items as $item ) {
+			if ( ! isset( $map[ $item->get_id() ] ) ) {
+				continue;
+			}
+			$sku     = GSUP_AliExpress::find_sku( $new, $map[ $item->get_id() ] );
+			$current = GSUP_Profit::unit_cost( $item->get_id() );
+			$backup  = $sku ? (float) $sku['price'] + $fee : null;
+			$rows[]  = array(
+				'name'    => self::item_label( $item ),
+				'current' => null === $current ? null : round( $current, 2 ),
+				'backup'  => null === $backup ? null : round( $backup, 2 ),
+			);
+			if ( null !== $current && null !== $backup ) {
+				$now  += $current;
+				$then += $backup;
+			}
+		}
+		update_post_meta(
+			$product_id,
+			self::M_BACKUP,
+			array(
+				'product_id' => (string) $new['product_id'],
+				'ship'       => $ship,
+				'map'        => $map,
+				'saved_at'   => time(),
+			)
+		);
+		return array(
+			'matched'      => count( $map ),
+			'total'        => count( $items ),
+			'unmatched'    => $unmatched,
+			'cost'         => array(
+				'current'  => round( $now, 2 ),
+				'backup'   => round( $then, 2 ),
+				'currency' => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : '',
+				'items'    => $rows,
+			),
+			'replaced'     => $old ? (string) $old['product_id'] : '',
+			'supplier_url' => admin_url( 'post.php?post=' . (int) $product_id . '&action=edit#gsup_supplier_data' ),
+		);
+	}
+
+	/** Options of the product the backup has no match for (worked out, not stored, so the backup keeps one shape). */
+	public static function backup_unmatched( $product_id ) {
+		$b       = self::backup( $product_id );
+		$product = $b ? wc_get_product( $product_id ) : null;
+		if ( ! $product ) {
+			return array();
+		}
+		$out = array();
+		foreach ( self::targets( $product ) as $item ) {
+			if ( ! isset( $b['map'][ $item->get_id() ] ) ) {
+				$out[] = self::item_label( $item );
+			}
+		}
+		return $out;
+	}
+
+	/** "Colour: Red, Size: M" for a variation; the product name for a simple product. */
+	private static function item_label( WC_Product $item ) {
+		if ( $item->is_type( 'variation' ) && function_exists( 'wc_get_formatted_variation' ) ) {
+			return wp_strip_all_tags( wc_get_formatted_variation( $item, true, false, false ) );
+		}
+		return $item->get_name();
+	}
+
+	/** Linked store products for the extension's "Use as backup" search. */
+	public static function linked_products( $search, $limit = 20 ) {
+		$ids = get_posts(
+			array(
+				'post_type'        => 'product',
+				'post_status'      => array( 'publish', 'draft', 'pending', 'private' ),
+				'numberposts'      => $limit,
+				'fields'           => 'ids',
+				's'                => (string) $search,
+				'meta_key'         => GSUP_META_PRODUCT, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'orderby'          => '' === (string) $search ? 'modified' : 'relevance',
+				'order'            => 'DESC',
+				'suppress_filters' => true,
+			)
+		);
+		$out = array();
+		foreach ( $ids as $id ) {
+			$product = wc_get_product( $id );
+			if ( ! $product ) {
+				continue;
+			}
+			$b     = self::backup( $id );
+			$out[] = array(
+				'id'            => (int) $id,
+				'name'          => html_entity_decode( $product->get_name(), ENT_QUOTES ),
+				'ae_product_id' => (string) get_post_meta( $id, GSUP_META_PRODUCT, true ),
+				'ships_from'    => implode( ', ', array_map( 'gsup_ship_from_label', GSUP_CBR::warehouses( $product ) ) ),
+				'has_backup'    => (bool) $b,
+				'backup_id'     => $b ? (string) $b['product_id'] : '',
+				'edit_url'      => admin_url( 'post.php?post=' . (int) $id . '&action=edit' ),
+			);
+		}
+		return $out;
+	}
+
 	public static function url( $product_id, $args = array() ) {
 		return gsup_admin_url( array_merge( array( 'tab' => 'remap', 'product' => (int) $product_id ), $args ) );
 	}

@@ -54,6 +54,17 @@ class GSUP_Product_Fields {
 			$backup = GSUP_Remap::backup( $id );
 			if ( $backup ) {
 				echo '<br><span class="gsup-meta">Backup supplier: <a href="' . esc_url( gsup_ae_url( $backup['product_id'] ) ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( $backup['product_id'] ) . ' ↗</a> (' . count( $backup['map'] ) . ' option(s) matched, saved ' . esc_html( wp_date( 'j M Y', (int) $backup['saved_at'] ) ) . ') · <a href="' . esc_url( GSUP_Remap::backup_remove_url( $id ) ) . '">Remove</a></span>';
+				$missing = GSUP_Remap::backup_unmatched( $id );
+				if ( $missing ) {
+					$review = GSUP_Remap::url(
+						$id,
+						array(
+							'ae'   => $backup['product_id'],
+							'ship' => '' === (string) $backup['ship'] ? 'none' : $backup['ship'],
+						)
+					);
+					echo '<br><span class="gsup-warn--soft">' . count( $missing ) . ' option(s) not matched on the backup — review: <em>' . esc_html( implode( '; ', array_slice( $missing, 0, 5 ) ) . ( count( $missing ) > 5 ? '…' : '' ) ) . '</em> · <a href="' . esc_url( $review ) . '">Match them</a></span>';
+				}
 			} else {
 				echo '<br><span class="gsup-meta">No backup supplier. Use <em>Change supplier…</em> → <em>Save as backup</em> to add one.</span>';
 			}

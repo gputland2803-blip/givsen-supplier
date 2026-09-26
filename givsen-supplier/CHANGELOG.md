@@ -1,5 +1,11 @@
 # Givsen Supplier — Changelog
 
+## 0.11.0 — 2026-09-26
+- **Save as backup supplier from AliExpress** (with Chrome extension 0.5.0). On the Add to Givsen card, pick one of your linked store products and click "Save as backup supplier": the listing's options (for the warehouse chosen on the page) are matched to the product's options automatically — the same matching as Change supplier — and saved as its backup in exactly the same form. It never switches the supplier and never changes prices; automatic switch-over keeps its rule (only when every mapped option exists and is in stock).
+- The reply shows options matched (e.g. 2 of 3), the ones that weren't by name, cost with delivery now vs. the backup, and a link to the Supplier tab. Refused when the listing is already the product's main supplier, when it has no options from that warehouse, or when nothing matches. Replacing an existing backup needs confirming.
+- Supplier tab: "N option(s) not matched on the backup — review" with the names and a link that opens Change supplier with the backup listing ready to match by hand (works for backups saved either way).
+- New signed endpoints `GET /linked-products?search=` and `POST /backup` — signature version 2 only (method and endpoint signed, each request accepted once). Settings text on what the connection key allows updated.
+
 ## 0.10.2 — 2026-09-26
 - **Descriptions from the product page.** AliExpress's "AI overview of item" and the specifications table are only on the web page — its API doesn't include them. With Chrome extension 0.4.2, they're captured (with any written description) when you click Add to Givsen, kept with the import-list item, and used by Add to store when the listing's own description is only images: overview and specifications as bullet lists with bold headings, seller notes removed. Order: the listing's words → the page's words → AliExpress's mobile description → a starter from the facts.
 - Import list table gains `page_text` (upgrades itself).
