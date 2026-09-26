@@ -57,6 +57,7 @@ class GSUP_Remap { static function auto_match() { return array(); } }
 $GLOBALS['reach'] = array();
 require __DIR__ . '/../givsen-supplier/includes/class-gsup-sources.php';
 class GSUP_Shop { static function options( $pid, $item, $c ) { return $GLOBALS['shop_opts'][ $item . '|' . $c ] ?? null; } }
+if ( ! class_exists( 'GSUP_Sources_Countries' ) ) { $GLOBALS['opts']['gsup_sell_countries'] = array( 'GB', 'FR', 'AU', 'US' ); }
 class GSUP_Visitor { static function name( $c ) { return gsup_ship_from_label( $c ) === $c ? ( array( 'GB' => 'United Kingdom', 'FR' => 'France' )[ $c ] ?? $c ) : gsup_ship_from_label( $c ); } }
 require __DIR__ . '/../givsen-supplier/includes/class-gsup-givsen.php';
 require __DIR__ . '/../givsen-supplier/includes/class-gsup-orders.php';
@@ -155,6 +156,9 @@ ok( true === GSUP_Givsen::claim_deliverable( true, $claim, array( 'country' => '
 $e = GSUP_Givsen::claim_deliverable( true, $claim, array( 'country' => 'FR' ), 'recipient' );
 ok( is_wp_error( $e ) && false !== strpos( $e->get_error_message(), 'Pearl Necklace can’t be delivered to France' ) && false !== strpos( $e->get_error_message(), 'let the person who sent it know' ), 'claim to France: refused with a clear message before the claim completes' );
 ok( true === GSUP_Givsen::claim_deliverable( true, $claim, array( 'country' => 'NZ' ), 'recipient' ), 'unknown for that country (not checked) → left to Givsen' );
+$list = GSUP_Givsen::claim_countries( array( 'GB' => 'United Kingdom', 'FR' => 'France', 'NZ' => 'New Zealand' ), $claim );
+ok( array( 'GB' => 'United Kingdom', 'NZ' => 'New Zealand' ) === $list, 'address form: France (a selling country nothing reaches) left out; UK and unchecked NZ kept' );
+ok( array( 'FR' => 'France' ) === GSUP_Givsen::claim_countries( array( 'FR' => 'France' ), (object) array() ), 'not an order (e.g. Givsen’s preview): list untouched' );
 $prev = new WP_Error( 'givsen', 'zone' );
 ok( $prev === GSUP_Givsen::claim_deliverable( $prev, $claim, array( 'country' => 'FR' ), 'recipient' ), 'Givsen’s own refusal is kept' );
 

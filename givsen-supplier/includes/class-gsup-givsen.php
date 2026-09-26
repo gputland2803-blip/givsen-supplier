@@ -28,12 +28,33 @@ defined( 'ABSPATH' ) || exit;
 class GSUP_Givsen {
 
 	/**
-	 * Ready for Givsen's claim-address check. Givsen 1.4.2 only checks your shipping zones when a recipient (or the
-	 * sender) enters an address, with no filter for other plugins; this answers the filter
-	 * `givsen_claim_address_deliverable` proposed for Givsen (see SPEC.md → Givsen gift plugin) as soon as it exists.
+	 * Givsen 1.4.3+ asks other plugins about a gift's delivery address: which countries to offer on the address form
+	 * (`givsen_claim_countries_for_order`) and whether the address entered can be delivered
+	 * (`givsen_claim_address_deliverable`). Older Givsen never asks; ordering still catches it (not placed, noted, emailed).
 	 */
 	public static function init() {
 		add_filter( 'givsen_claim_address_deliverable', array( __CLASS__, 'claim_deliverable' ), 10, 4 );
+		add_filter( 'givsen_claim_countries_for_order', array( __CLASS__, 'claim_countries' ), 10, 2 );
+	}
+
+	/**
+	 * Leave out of the gift's address form the selling countries none of its items can reach (from the weekly reach
+	 * data — no AliExpress calls). Other countries stay; the address check on submit covers them.
+	 *
+	 * @param array    $countries code => label
+	 * @param WC_Order $order
+	 */
+	public static function claim_countries( $countries, $order ) {
+		if ( ! is_array( $countries ) || ! $order instanceof WC_Order || ! class_exists( 'GSUP_Sources' ) ) {
+			return $countries;
+		}
+		$selling = GSUP_Sources::countries();
+		foreach ( array_keys( $countries ) as $code ) {
+			if ( in_array( $code, $selling, true ) && self::unreachable_items( $order, $code ) ) {
+				unset( $countries[ $code ] );
+			}
+		}
+		return $countries;
 	}
 
 	/**

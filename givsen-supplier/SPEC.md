@@ -170,25 +170,10 @@ Per-option delivery quotes (one quote per product and warehouse is used).
 ## Givsen gift plugin
 Gift routing: see Automatic ordering → Warehouse (sender's choice ignored; nothing reaches → problem, note, email).
 
-**Hook needed in Givsen** (1.4.2 has none): in `givsen_take_address()` (givsen.php), straight after the `givsen_merchant_serves()` block and before the address is saved, add:
-```php
-if ( ! $missing ) {
-	/**
-	 * Whether this gift can be delivered to the address entered, beyond the store's shipping zones.
-	 *
-	 * @param true|WP_Error $ok         True to accept; a WP_Error refuses it, and its message is shown to whoever entered the address.
-	 * @param WC_Order      $order      The gift order.
-	 * @param array         $claimed_to {country, state, postcode, city}
-	 * @param string        $who        'recipient' or 'sender'.
-	 */
-	$ok = apply_filters( 'givsen_claim_address_deliverable', true, $order, $claimed_to, $who );
-	if ( is_wp_error( $ok ) ) {
-		$missing = true;
-		$notice  = '<p class="givsen-error">' . esc_html( $ok->get_error_message() ) . '</p>';
-	}
-}
-```
-Nice to have: `apply_filters( 'givsen_claim_countries_for_order', givsen_claim_countries(), $order )` where the claim form builds its country list, so unreachable countries aren't offered at all. Givsen Supplier answers `givsen_claim_address_deliverable` already (`GSUP_Givsen::claim_deliverable()`: any AliExpress-linked line with no warehouse delivering in stock to that country — `GSUP_Shop::options()` returning an empty list — refuses; unknown is left to Givsen; an earlier refusal is kept).
+**Claim address (Givsen 1.4.3+).** Givsen 1.4.3 adds two filters, both answered here:
+- `givsen_claim_countries_for_order( $countries, $order )` → `GSUP_Givsen::claim_countries()`: selling countries none of the order's items can reach (reach table, no API calls) are left off the recipient's and sender's address forms. Givsen never lets it empty the list.
+- `givsen_claim_address_deliverable( true, $order, $claimed_to, $who )` (inside `givsen_take_address()`, after the shipping-zone check, not for an already-paid abroad request) → `GSUP_Givsen::claim_deliverable()`: any AliExpress-linked line with no warehouse delivering in stock to that country (`GSUP_Shop::options()` empty; unlisted countries checked live) → `WP_Error` shown on the form, nothing saved; unknown → accepted; an earlier refusal is kept. Givsen notes the attempt once.
+Business gifting claims arrive from Givsen Core with the address already taken, so they're only caught at ordering. With Givsen 1.4.2 or older neither filter runs.
 
 `GSUP_Givsen` (active when `givsen_is_gift_order()` exists). `_givsen_mode` corporate → never queued/placed, panel explains. corporate_child → loss check and profit from `child_share()` = parent line total ÷ quantity + parent shipping ÷ quantity, fees ÷ quantity (not cached on the child). Phone: shipping → billing → parent billing (child) → `gsup_fallback_phone`. `hide_from_buyer()` = `givsen_is_gift_order()` and `_givsen_address_by` ≠ sender → no tracking in customer emails/My Account, no AST. Delivered email: personal gift → buyer ("to {first name}", via `givsen_greeting_first_name()`); corporate_child → billing email (the recipient's) or nobody; corporate parent → nobody. Report adds fee-only orders (`_givsen_postage_for`) as revenue.
 
