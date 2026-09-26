@@ -1,5 +1,17 @@
 # Givsen Supplier — Changelog
 
+## 0.6.1 — 2026-09-26
+Settings redesign and fixes.
+- **Settings redesigned**: a side menu of sections (Overview, AliExpress connection, Ordering & tracking, Pricing & profit, Daily sync, Country restrictions, Chrome extension), each with an on/off/needs-attention badge. Overview lists anything waiting on you (not connected, import list items, orders that couldn't be placed, low-margin products, a stopped sync) and a card per area. Save buttons stay on their section, a warning appears if you leave with unsaved changes, CBR storage keys are tucked under "Advanced", and the menu becomes a tab row on narrow screens.
+- Fix: Tracking queue rotates so dead orders can't block new ones.
+- Fix: Cancelled/unknown AliExpress orders and fully refunded items stop waiting for tracking.
+- Fix: Refunded items aren't reported as ordering problems.
+- Fix: The order note says when an order still needs paying on AliExpress.
+- Fix: AliExpress amounts in another currency aren't used as cost.
+- Fix: A new AliExpress order number clears the old cancellation warning.
+- Fix: Refunded tax no longer counted twice in order profit.
+- Fix: No false "cost went up" alerts on the first sync after upgrading.
+
 ## 0.6.0 — 2026-09-26
 Automatic ordering, tracking, profit, real shipping cost, CBR.
 - **Automatic ordering** (Settings → Automatic ordering, off until you turn it on): when an order reaches Processing — paid, or a Givsen gift once claimed — each item is placed on AliExpress in the background with the customer's address and the exact option, using your shipping method preference (cheapest with tracking by default). Optional automatic payment with your AliExpress account's saved method. The AliExpress order number, delivery method and cost are saved on the order.
@@ -10,8 +22,6 @@ Automatic ordering, tracking, profit, real shipping cost, CBR.
 - Daily sync flags products whose margin a cost rise has pushed below the minimum (report and email).
 - **Real shipping cost**: AliExpress's delivery fee is quoted when adding to store and kept up to date by the daily sync. Pricing rule can include it (on by default; Settings → Pricing). Add to store shows the delivery fee, method and margin per option.
 - **Country restrictions (CBR)** from ships-from (Settings → Country restrictions, off until you turn it on): warehouse → countries map (Australia → AU, United States → US to start). New products get the restriction automatically; "Apply to linked products" does existing ones, keeping restrictions you set by hand unless you choose to replace them. "Look at a product" shows exactly how CBR saved its setting so the keys can be matched. Products list shows "Shown to: …".
-- Review fixes before release: tracking queue rotates so dead orders can't block new ones; cancelled/unknown AliExpress orders and fully refunded items stop waiting for tracking; refunded items aren't reported as ordering problems; the order note says when an order still needs paying on AliExpress; AliExpress amounts in another currency aren't used as cost; a new AliExpress order number clears the old cancellation warning; refunded tax no longer counted twice in order profit; no false "cost went up" alerts on the first sync after upgrading.
-- **Settings redesigned**: a side menu of sections (Overview, AliExpress connection, Ordering & tracking, Pricing & profit, Daily sync, Country restrictions, Chrome extension), each with an on/off/needs-attention badge. Overview lists anything waiting on you (not connected, import list items, orders that couldn't be placed, low-margin products, a stopped sync) and a card per area. Save buttons stay on their section, a warning appears if you leave with unsaved changes, CBR storage keys are tucked under "Advanced", and the menu becomes a tab row on narrow screens.
 - Uninstall also removes the new settings and scheduled checks (order data and product costs are kept).
 
 ## 0.5.0 — 2026-09-26

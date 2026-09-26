@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.6.0
+Stable tag: 0.6.1
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -26,6 +26,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.6.1 =
+* Settings redesigned into sections with status badges and an Overview of what needs attention. Fixes from review: tracking queue, refunded items, payment note, currency of AliExpress amounts, cancelled-order warnings, order profit with refunds, first-sync cost alerts.
 
 = 0.6.0 =
 * Automatic ordering and tracking sync, profit/margin on products and orders, real AliExpress delivery fees in costs and pricing, CBR country restrictions from ships-from.
