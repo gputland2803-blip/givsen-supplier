@@ -311,7 +311,7 @@ class GSUP_Order_Panel {
 			$ae      = (string) $item->get_meta( GSUP_ITEM_AE_ORDER );
 			if ( '' === $ae && $product && '' !== gsup_get_supplier_link( $product )['product_id'] ) {
 				++$unplaced;
-			} elseif ( '' !== $ae && '' === (string) $item->get_meta( GSUP_ITEM_TRACKING ) ) {
+			} elseif ( '' !== $ae && '' === (string) $item->get_meta( GSUP_ITEM_TRACKING ) && ! $item->get_meta( GSUP_Orders::I_DEAD ) ) {
 				++$untrack;
 			}
 		}
@@ -399,7 +399,8 @@ class GSUP_Order_Panel {
 			if ( ! isset( $posted[ $item_id ] ) || ! is_array( $posted[ $item_id ] ) ) {
 				continue;
 			}
-			$changed = false;
+			$changed       = false;
+			$order_changed = false;
 			foreach (
 				array(
 					'ae_order' => array( GSUP_ITEM_AE_ORDER, 'AliExpress order' ),
@@ -418,12 +419,18 @@ class GSUP_Order_Panel {
 					$item->update_meta_data( $spec[0], $new );
 					$notes[] = sprintf( '%1$s %2$s recorded for “%3$s”.', ucfirst( $spec[1] ), $new, $item->get_name() );
 				}
-				$changed = true;
+				$changed       = true;
+				$order_changed = $order_changed || ( GSUP_ITEM_AE_ORDER === $spec[0] && '' !== $new );
 			}
 			if ( $changed ) {
-				if ( '' !== (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) && ! preg_match( '/cancel/i', (string) $item->get_meta( GSUP_ITEM_PROBLEM ) ) ) {
+				if ( $order_changed ) {
+					// A new AliExpress order number replaces whatever happened to the old one.
 					$item->delete_meta_data( GSUP_ITEM_PROBLEM );
 					$item->delete_meta_data( GSUP_Orders::I_PLACING );
+					$item->delete_meta_data( GSUP_Orders::I_DEAD );
+					$item->delete_meta_data( GSUP_Orders::I_AE_STATUS );
+				} elseif ( '' !== (string) $item->get_meta( GSUP_ITEM_TRACKING ) && ! $item->get_meta( GSUP_Orders::I_DEAD ) ) {
+					$item->delete_meta_data( GSUP_ITEM_PROBLEM );
 				}
 				$item->save();
 				$any = true;

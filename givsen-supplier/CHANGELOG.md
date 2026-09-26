@@ -10,6 +10,7 @@ Automatic ordering, tracking, profit, real shipping cost, CBR.
 - Daily sync flags products whose margin a cost rise has pushed below the minimum (report and email).
 - **Real shipping cost**: AliExpress's delivery fee is quoted when adding to store and kept up to date by the daily sync. Pricing rule can include it (on by default; Settings → Pricing). Add to store shows the delivery fee, method and margin per option.
 - **Country restrictions (CBR)** from ships-from (Settings → Country restrictions, off until you turn it on): warehouse → countries map (Australia → AU, United States → US to start). New products get the restriction automatically; "Apply to linked products" does existing ones, keeping restrictions you set by hand unless you choose to replace them. "Look at a product" shows exactly how CBR saved its setting so the keys can be matched. Products list shows "Shown to: …".
+- Review fixes before release: tracking queue rotates so dead orders can't block new ones; cancelled/unknown AliExpress orders and fully refunded items stop waiting for tracking; refunded items aren't reported as ordering problems; the order note says when an order still needs paying on AliExpress; AliExpress amounts in another currency aren't used as cost; a new AliExpress order number clears the old cancellation warning; refunded tax no longer counted twice in order profit; no false "cost went up" alerts on the first sync after upgrading.
 - Uninstall also removes the new settings and scheduled checks (order data and product costs are kept).
 
 ## 0.5.0 — 2026-09-26

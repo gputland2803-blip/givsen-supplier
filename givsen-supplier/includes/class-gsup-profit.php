@@ -243,8 +243,13 @@ class GSUP_Profit {
 		if ( ! $lines ) {
 			return null;
 		}
-		$revenue = (float) $order->get_total() - (float) $order->get_total_tax() - (float) $order->get_total_refunded();
-		$fees    = (float) $order->get_total() > 0 ? self::fee( $order->get_total() ) + self::fee_fixed() : 0;
+		// Refunds include their tax, so take refunded tax back out of the tax figure to avoid counting it twice.
+		$refunded     = (float) $order->get_total_refunded();
+		$tax_refunded = (float) $order->get_total_tax_refunded();
+		$kept_total   = (float) $order->get_total() - $refunded;
+		$revenue      = $kept_total - ( (float) $order->get_total_tax() - $tax_refunded );
+		// Card fees are charged on what was paid and usually not returned on refunds.
+		$fees         = (float) $order->get_total() > 0 ? self::fee( $order->get_total() ) + self::fee_fixed() : 0;
 		$profit  = $revenue - $cost - $fees;
 		return array(
 			'revenue' => $revenue,

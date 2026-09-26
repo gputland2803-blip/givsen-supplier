@@ -366,7 +366,9 @@ class GSUP_Sync {
 			}
 		}
 
-		$old_total = (float) get_post_meta( $id, GSUP_META_COST, true ) + (float) get_post_meta( $id, GSUP_META_SHIP_COST, true );
+		$old_cost = (float) get_post_meta( $id, GSUP_META_COST, true );
+		$old_ship = get_post_meta( $id, GSUP_META_SHIP_COST, true );
+		$had_ship = '' !== $old_ship; // Products added before 0.6.0 have no delivery fee yet: that's not a cost rise.
 		if ( $freight ) {
 			$fee = wc_format_decimal( $freight['fee'], 2 );
 			if ( (string) get_post_meta( $id, GSUP_META_SHIP_COST, true ) !== (string) $fee ) {
@@ -389,7 +391,9 @@ class GSUP_Sync {
 				$changed = true;
 				++$report['cost_changes'];
 			}
-			$rose = $old_total > 0 && ( (float) $cost + $ship ) > $old_total + 0.004;
+			$new_total = (float) $cost + ( $had_ship ? $ship : 0 );
+			$old_total = $old_cost + ( $had_ship ? (float) $old_ship : 0 );
+			$rose      = $old_cost > 0 && $new_total > $old_total + 0.004;
 			if ( self::update_prices() ) {
 				$price = GSUP_Creator::price_for( $cost, $ship );
 				if ( '' !== $price && (string) $item->get_regular_price() !== (string) $price ) {

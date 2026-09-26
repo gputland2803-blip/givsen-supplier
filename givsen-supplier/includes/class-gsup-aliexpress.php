@@ -17,6 +17,9 @@ class GSUP_AliExpress {
 	const STATE_PREFIX  = 'gsup_ae_state_';
 	const REFRESH_AHEAD = 3 * DAY_IN_SECONDS; // At most; short-lived connections renew at a quarter of their life.
 
+	/** Whether the last place_order() asked AliExpress to pay (the older order method can't). */
+	public static $last_pay_requested = false;
+
 	public static function gateway() {
 		return untrailingslashit( (string) apply_filters( 'gsup_ae_gateway', self::GATEWAY ) );
 	}
@@ -651,8 +654,10 @@ class GSUP_AliExpress {
 		}
 		$method = 'aliexpress.ds.order.create';
 		$data   = self::request( $method, $params );
+		self::$last_pay_requested = isset( $params['ds_extend_request'] );
 		if ( self::method_unavailable( $data ) ) {
 			unset( $params['ds_extend_request'] );
+			self::$last_pay_requested = false;
 			$method = 'aliexpress.trade.buy.placeorder';
 			$data   = self::request( $method, $params );
 		}

@@ -29,6 +29,8 @@ class GSUP_Orders {
 	const I_PLACING    = '_gsup_placing';           // Set just before asking AliExpress, cleared after.
 	const I_METHOD     = '_gsup_ae_ship_method';
 	const I_AE_STATUS  = '_gsup_ae_status';
+	const I_DEAD       = '_gsup_ae_dead';           // AliExpress order cancelled or not found: stop checking it for tracking.
+	const M_CHECKED    = '_gsup_tracking_checked';  // Last tracking check (also rotates the queue).
 	const GIVE_UP_DAYS = 60;
 
 	public static function init() {
@@ -91,7 +93,10 @@ class GSUP_Orders {
 
 	/** Lines that are linked to AliExpress and have no AliExpress order number yet. */
 	private static function has_unplaced_lines( WC_Order $order ) {
-		foreach ( $order->get_items() as $item ) {
+		foreach ( $order->get_items() as $item_id => $item ) {
+			if ( ! self::net_qty( $order, $item_id, $item ) ) {
+				continue;
+			}
 			$product = $item->get_product();
 			if ( $product && '' !== gsup_get_supplier_link( $product )['product_id'] && '' === (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) ) {
 				return true;
@@ -142,6 +147,9 @@ class GSUP_Orders {
 			if ( ! $link || '' === $link['product_id'] ) {
 				continue; // Not an AliExpress item — nothing to do.
 			}
+			if ( ! self::net_qty( $order, $item_id, $item ) ) {
+				continue; // Fully refunded — nothing to order.
+			}
 			if ( $item->get_meta( self::I_PLACING ) && ! $manual ) {
 				$problems[ $item_id ] = self::problem( $item, 'The last attempt got no answer from AliExpress, so it may have been ordered. Check your AliExpress orders, then enter the order number or click “Place on AliExpress now”.' );
 				continue;
@@ -180,6 +188,19 @@ class GSUP_Orders {
 		);
 	}
 
+	/** Quantity after refunds. */
+	private static function net_qty( WC_Order $order, $item_id, $item ) {
+		return max( 0, (int) $item->get_quantity() + (int) $order->get_qty_refunded_for_item( $item_id ) );
+	}
+
+	/** Whether a line still waits for tracking from AliExpress. */
+	private static function line_waits( WC_Order $order, $item_id, $item ) {
+		return '' !== (string) $item->get_meta( GSUP_ITEM_AE_ORDER )
+			&& '' === (string) $item->get_meta( GSUP_ITEM_TRACKING )
+			&& ! $item->get_meta( self::I_DEAD )
+			&& self::net_qty( $order, $item_id, $item ) > 0;
+	}
+
 	private static function problem( WC_Order_Item_Product $item, $message ) {
 		$item->update_meta_data( GSUP_ITEM_PROBLEM, $message );
 		$item->save();
@@ -193,10 +214,7 @@ class GSUP_Orders {
 	 */
 	private static function place_line( WC_Order $order, WC_Order_Item_Product $item, WC_Product $product, array $link, array $address, $country, array &$products ) {
 		$item_id = $item->get_id();
-		$qty     = $item->get_quantity() + $order->get_qty_refunded_for_item( $item_id );
-		if ( $qty <= 0 ) {
-			return new WP_Error( 'gsup_refunded', 'Refunded — not ordered.' );
-		}
+		$qty     = self::net_qty( $order, $item_id, $item );
 		$parent_id = $product->is_type( 'variation' ) ? $product->get_parent_id() : $product->get_id();
 		if ( 'removed' === get_post_meta( $parent_id, GSUP_Sync::M_STATUS, true ) || get_post_meta( $product->get_id(), GSUP_Sync::M_GONE, true ) ) {
 			return new WP_Error( 'gsup_gone', 'AliExpress no longer sells this.' );
@@ -283,7 +301,7 @@ class GSUP_Orders {
 				$ae_order,
 				$freight['name'],
 				gsup_money( $cost ),
-				'no' !== get_option( 'gsup_auto_pay', 'yes' ) ? '' : ' — waiting for payment on AliExpress'
+				GSUP_AliExpress::$last_pay_requested ? '' : ' — waiting for you to pay it on AliExpress'
 			)
 		);
 		return $ae_order;
@@ -382,7 +400,7 @@ class GSUP_Orders {
 				'status'     => array_keys( wc_get_order_statuses() ),
 				'meta_key'   => self::M_AWAITING, // phpcs:ignore WordPress.DB.SlowDBQuery
 				'meta_value' => 'yes', // phpcs:ignore WordPress.DB.SlowDBQuery
-				'orderby'    => 'date',
+				'orderby'    => 'modified', // Each check saves the order, so recently checked orders go to the back.
 				'order'      => 'ASC',
 				'return'     => 'ids',
 			)
@@ -419,11 +437,11 @@ class GSUP_Orders {
 		$waiting = 0;
 		$notes   = array();
 		$cache   = array();
-		foreach ( $order->get_items() as $item ) {
-			$ae_order = trim( (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) );
-			if ( '' === $ae_order || '' !== (string) $item->get_meta( GSUP_ITEM_TRACKING ) ) {
+		foreach ( $order->get_items() as $item_id => $item ) {
+			if ( ! self::line_waits( $order, $item_id, $item ) ) {
 				continue;
 			}
+			$ae_order = trim( (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) );
 			$numbers  = array();
 			$carriers = array();
 			foreach ( preg_split( '/[\s,;]+/', $ae_order ) as $no ) {
@@ -438,16 +456,23 @@ class GSUP_Orders {
 					if ( in_array( $info->get_error_code(), array( 'gsup_ae_network', 'gsup_ae_bad_response', 'gsup_ae_not_connected', 'gsup_ae_expired', 'gsup_ae_no_app' ), true ) ) {
 						return new WP_Error( 'gsup_stop', $info->get_error_message() );
 					}
+					if ( 'gsup_ae_order_missing' === $info->get_error_code() ) {
+						$item->update_meta_data( self::I_DEAD, 'missing' );
+						$item->update_meta_data( GSUP_ITEM_PROBLEM, $info->get_error_message() . ' Check the AliExpress order number.' );
+						$notes[] = $info->get_error_message();
+					}
 					continue;
 				}
 				if ( $info['status'] !== (string) $item->get_meta( self::I_AE_STATUS ) ) {
 					$item->update_meta_data( self::I_AE_STATUS, $info['status'] );
 					if ( preg_match( '/cancel|close/i', $info['status'] ) ) {
+						$item->update_meta_data( self::I_DEAD, 'cancelled' );
 						$item->update_meta_data( GSUP_ITEM_PROBLEM, 'AliExpress order ' . $no . ' was cancelled (' . $info['status'] . '). Order it again by hand.' );
 						$notes[] = 'AliExpress order ' . $no . ' for “' . $item->get_name() . '” was cancelled.';
 					}
 				}
-				if ( null !== $info['amount'] && $info['amount'] > 0 && 1 === count( preg_split( '/[\s,;]+/', $ae_order, -1, PREG_SPLIT_NO_EMPTY ) ) ) {
+				$same_currency = '' === $info['currency'] || strtoupper( $info['currency'] ) === strtoupper( $order->get_currency() );
+				if ( $same_currency && null !== $info['amount'] && $info['amount'] > 0 && 1 === count( preg_split( '/[\s,;]+/', $ae_order, -1, PREG_SPLIT_NO_EMPTY ) ) ) {
 					$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $info['amount'], 2 ) );
 				}
 				foreach ( $info['tracking'] as $t ) {
@@ -463,11 +488,13 @@ class GSUP_Orders {
 				$notes[] = sprintf( 'Tracking %1$s%2$s received from AliExpress for “%3$s”.', $tracking, '' !== $carrier ? ' (' . $carrier . ')' : '', $item->get_name() );
 				self::to_ast( $order, array_keys( $numbers ), $carrier );
 				++$found;
-			} else {
+			} elseif ( ! $item->get_meta( self::I_DEAD ) ) {
 				++$waiting;
 			}
 			$item->save();
 		}
+		$order->update_meta_data( self::M_CHECKED, time() );
+		$order->set_date_modified( time() ); // Moves it to the back of the queue.
 		if ( $notes ) {
 			$order->add_order_note( 'Givsen Supplier: ' . implode( ' ', $notes ) );
 		}
@@ -482,15 +509,16 @@ class GSUP_Orders {
 	public static function after_tracking_change( WC_Order $order, $waiting = null ) {
 		if ( null === $waiting ) {
 			$waiting = 0;
-			foreach ( $order->get_items() as $item ) {
-				if ( '' !== (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) && '' === (string) $item->get_meta( GSUP_ITEM_TRACKING ) ) {
+			foreach ( $order->get_items() as $item_id => $item ) {
+				if ( self::line_waits( $order, $item_id, $item ) ) {
 					++$waiting;
 				}
 			}
 		}
 		$created = $order->get_date_created();
 		$too_old = $created && $created->getTimestamp() < time() - self::GIVE_UP_DAYS * DAY_IN_SECONDS;
-		if ( $waiting && ! $too_old ) {
+		$closed  = in_array( $order->get_status(), array( 'cancelled', 'refunded', 'failed', 'trash' ), true );
+		if ( $waiting && ! $too_old && ! $closed ) {
 			$order->update_meta_data( self::M_AWAITING, 'yes' );
 			$order->save();
 			return;
@@ -503,9 +531,12 @@ class GSUP_Orders {
 		}
 	}
 
-	/** Every AliExpress-linked line has tracking (lines not from AliExpress don't count). */
+	/** Every AliExpress-linked line has tracking (lines not from AliExpress, and fully refunded lines, don't count). */
 	private static function all_lines_tracked( WC_Order $order ) {
-		foreach ( $order->get_items() as $item ) {
+		foreach ( $order->get_items() as $item_id => $item ) {
+			if ( ! self::net_qty( $order, $item_id, $item ) ) {
+				continue;
+			}
 			$product = $item->get_product();
 			$linked  = $product && '' !== gsup_get_supplier_link( $product )['product_id'];
 			if ( ( $linked || '' !== (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) ) && '' === (string) $item->get_meta( GSUP_ITEM_TRACKING ) ) {

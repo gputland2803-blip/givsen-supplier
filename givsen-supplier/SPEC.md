@@ -73,7 +73,7 @@ Screen: Import list → "Add to store as new product" (or Settings → Test → 
 
 ## Daily sync
 Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at 03:00 store time while `gsup_sync_enabled` = yes; batches of 15 via `gsup_sync_batch`. Run state in `gsup_sync_run`, last report in `gsup_sync_last`. One AliExpress call per (product ID, delivery country) per batch; delivery country AU or US from the product's ships-from, else the store's base country.
-- Delivery fee: one quote per (product, country) per batch; failed quote keeps the stored fee. Counted as "delivery fee changes".
+- Delivery fee: one quote per (product, country) per batch; failed quote keeps the stored fee. Counted as "delivery fee changes". A product's first delivery fee (e.g. after upgrading) isn't treated as a cost rise.
 - Cost + delivery went up and the product's margin is now below the minimum → listed as low margin (email + report).
 - Found and on sale: stock (number → managed quantity; "in stock, amount unknown" → unmanaged, in stock), `_gsup_cost`; regular price = pricing rule when `gsup_sync_prices` = yes. Clears missing/removed/gone flags. Options not linked to a SKU are only updated when the listing has a single option.
 - Option not on the listing: out of stock (quantity 0 if managed), `_gsup_option_gone`; reported once.
@@ -91,11 +91,14 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 - Address: shipping, else billing; name, street, city, postcode, country and phone required. Company prefixed to the street. State written out. Phone split into `phone_country` (+61) and digits without the trunk 0 (not for US/CA).
 - Delivery: freight quote for the actual quantity and country, chosen by the preference.
 - Payment: `gsup_auto_pay` (default on) asks AliExpress to pay with the account's saved method; off → orders wait for payment on AliExpress.
-- Success → order number, delivery method, cost on the line; order note. Failure → reason on the line, order note, email. Network/unreadable reply/accepted-without-number → `_gsup_placing` stays, no automatic retry, message says to check AliExpress.
+- Fully refunded lines are skipped silently.
+- Success → order number, delivery method, cost on the line; order note (says "waiting for you to pay it" whenever payment wasn't requested, including when the older order method was used). Failure → reason on the line, order note, email. Network/unreadable reply/accepted-without-number → `_gsup_placing` stays, no automatic retry, message says to check AliExpress.
 - Order panel: status line, "Place on AliExpress now" (Processing, unplaced lines; also retries unanswered lines), "Check tracking now".
 
 ## Tracking
-- Action Scheduler `gsup_tracking_check` every 4 hours: up to 40 orders with `_gsup_awaiting_tracking` = yes, oldest first. Stops on connection errors.
+- Action Scheduler `gsup_tracking_check` every 4 hours: up to 40 orders with `_gsup_awaiting_tracking` = yes, least recently checked first (each check stamps `_gsup_tracking_checked` and the modified date). Stops on connection errors.
+- Lines stop waiting when AliExpress reports the order cancelled/closed or has no such order (`_gsup_ae_dead`, reason shown), or when fully refunded. Cancelled/refunded/failed store orders stop waiting. Entering a new AliExpress order number clears the old order's problem and status.
+- AliExpress's order amount is only used as the cost when it's in the order's currency.
 - Per line with an AliExpress order number and no tracking: `trade.ds.order.get` → tracking numbers + carrier saved, order note, passed to Advanced Shipment Tracking (`ast_insert_tracking_number`, provider filter `gsup_ast_provider`, default Cainiao) when active. Cancelled/closed → problem on the line + note. Amount → `_gsup_ae_cost` (single-order lines).
 - Entering an AliExpress order number by hand sets the flag too.
 - All AliExpress lines tracked → flag removed; order marked Completed if `gsup_complete_on_tracking` (default on) and still Processing. Flag dropped after 60 days.
@@ -105,7 +108,7 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 - Unit cost = `_gsup_cost` + `_gsup_ship_cost`. Fees = price × `gsup_fee_percent` % (+ `gsup_fee_fixed` per order on orders). Margin = (price − cost − fees) ÷ price. Before tax.
 - Products list: "Margin x% · profit" (ranges for variable), red "Low margin" under `gsup_min_margin` (30); filter "Low margin" (`_gsup_low_margin`). Flag refreshed on product/variation save, sync, create, and when profit settings are saved.
 - Product editor: cost + delivery (method) + margin at current price, per simple product and variation.
-- Orders: `_gsup_unit_cost` saved at checkout. Line cost = `_gsup_ae_cost`, else unit cost × net qty, else today's cost. Order revenue = total − tax − refunds. Order panel shows per-line and order profit; orders list has a Profit column (HPOS and classic).
+- Orders: `_gsup_unit_cost` saved at checkout. Line cost = `_gsup_ae_cost`, else unit cost × net qty, else today's cost. Order revenue = (total − refunds) − (tax − refunded tax). Payment fees on the original total. Order panel shows per-line and order profit; orders list has a Profit column (HPOS and classic).
 
 ## Country restrictions (CBR)
 - Off until `gsup_cbr_enabled`. Map warehouse → countries (`gsup_cbr_map`, default AU→AU, US→US).
