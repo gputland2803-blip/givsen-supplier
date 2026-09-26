@@ -1000,9 +1000,9 @@ class GSUP_AliExpress {
 	/** "Delivered", "Signed for", "Picked up by recipient" — but not "delivery attempted / failed / to be delivered". */
 	public static function is_delivered_text( $text ) {
 		$t = strtolower( (string) $text );
-		if ( preg_match( '/not\s+delivered|undeliver|attempt|fail|unsuccessful|to be delivered|out for delivery|will be delivered|delivering|return(ed)? to sender/', $t ) ) {
+		if ( preg_match( '/not\s+delivered|undeliver|attempt|fail|unsuccessful|to be delivered|out for delivery|will be delivered|delivering|return(ed)? to sender|delivered to (the )?(airline|carrier|courier|logistics|shipping|transport|sorting|hub|warehouse|depot|customs|flight|post office for|local (delivery|courier|carrier)|last[- ]mile)|handed over/', $t ) ) {
 			return false;
 		}
-		return (bool) preg_match( '/\bdelivered\b|signed\s*(for|by)?|picked up by (the )?(recipient|customer|consignee)|collected by (the )?(recipient|customer)|已签收|妥投/u', $t );
+		return (bool) preg_match( '/\bdelivered\b|\bsigned\s+(for|by)\b|^signed\b|\bsigned\s*:|picked up by (the )?(recipient|customer|consignee|addressee)|collected by (the )?(recipient|customer|addressee)|已签收|妥投/u', $t );
 	}
 }

@@ -249,7 +249,8 @@ class GSUP_Parcels {
 		self::set_flag( $order, self::M_TRANSIT, $transit && ! $closed && ! $stale );
 		self::set_flag( $order, self::M_ALERT, $alert && ! $closed );
 
-		$all_delivered = $tracked && $delivered === $tracked;
+		// Delivered means every AliExpress item on the order — not just the ones that have tracking so far.
+		$all_delivered = $tracked && $delivered === $tracked && self::all_linked_delivered( $order );
 		if ( $all_delivered && ! $order->get_meta( self::M_DELIVERED ) ) {
 			$order->update_meta_data( self::M_DELIVERED, $last );
 			$order->save_meta_data();

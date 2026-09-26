@@ -416,7 +416,13 @@ class GSUP_Sync {
 			return false;
 		}
 		if ( null !== $costs ) {
-			// Only worth it if the backup is cheaper for the same options.
+			// Nothing is broken, so only switch if the backup covers every option in use…
+			foreach ( array_keys( $costs ) as $item_id ) {
+				if ( ! isset( $b['map'][ $item_id ] ) ) {
+					return false;
+				}
+			}
+			// …and is cheaper for them.
 			$first   = reset( $b['map'] );
 			$quote   = GSUP_Creator::quote( $new['product_id'], $first, $b['ship'] );
 			$fee     = is_wp_error( $quote ) ? 0.0 : (float) $quote['fee'];

@@ -433,13 +433,13 @@ class GSUP_Remap {
 		GSUP_Profit::refresh_flag( $product_id );
 		GSUP_CBR::apply( $product_id, array( $ship ) !== $old_ships ); // Warehouse changed → its countries.
 
-		if ( $old_as_backup && '' !== $old_pid && $old_map ) {
+		if ( $old_as_backup && '' !== $old_pid && $old_map && count( $old_ship_list ) <= 1 ) {
 			update_post_meta(
 				$product_id,
 				self::M_BACKUP,
 				array(
 					'product_id' => $old_pid,
-					'ship'       => 1 === count( $old_ship_list ) ? $old_ship_list[0] : $ship,
+					'ship'       => $old_ship_list ? (string) $old_ship_list[0] : '',
 					'map'        => $old_map,
 					'saved_at'   => time(),
 				)
