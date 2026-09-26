@@ -107,7 +107,7 @@ class GSUP_Bulk_Tidy {
 		echo '<input type="hidden" name="action" value="gsup_tidy_apply"><input type="hidden" name="ids" value="' . esc_attr( implode( ',', $ids ) ) . '">';
 		wp_nonce_field( 'gsup_tidy_apply' );
 		echo '<p><label><input type="checkbox" name="do_title" value="1" checked> Titles</label> &nbsp; ';
-		echo '<label><input type="checkbox" name="do_desc" value="1" checked> Descriptions (remove AliExpress styling and links)</label> &nbsp; ';
+		echo '<label><input type="checkbox" name="do_desc" value="1"> Descriptions (remove AliExpress styling, links and seller notes; copy its images to your site) — <em>leave off for descriptions you’ve rewritten</em></label> &nbsp; ';
 		echo '<label><input type="checkbox" name="do_specs" value="1" checked> Item specifics → Additional information</label> &nbsp; ';
 		echo '<label><input type="checkbox" name="do_options" value="1"> Option names and values</label></p>';
 		echo '<table class="widefat striped gsup-sku-table"><thead><tr><td class="check-column"><input type="checkbox" class="gsup-tidy-all" checked aria-label="Select all"></td><th>Product</th><th>New title</th><th>Also</th></tr></thead><tbody>';
@@ -120,7 +120,7 @@ class GSUP_Bulk_Tidy {
 			$also  = array();
 			$desc  = GSUP_Tidy::description( $product->get_description(), $title );
 			if ( trim( $desc ) !== trim( $product->get_description() ) ) {
-				$also[] = 'description cleaned';
+				$also[] = 'description can be cleaned';
 			}
 			$key = isset( $pairs[ $id ] ) ? implode( '|', $pairs[ $id ] ) : '';
 			if ( $key && isset( $listings[ $key ] ) && ! is_wp_error( $listings[ $key ] ) ) {
@@ -176,6 +176,9 @@ class GSUP_Bulk_Tidy {
 			wp_die( 'You do not have permission to do that.', 403 );
 		}
 		check_admin_referer( 'gsup_tidy_apply' );
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- copying description images can take a while.
+		}
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked above.
 		$picked = isset( $_POST['pick'] ) && is_array( $_POST['pick'] ) ? array_slice( array_map( 'absint', $_POST['pick'] ), 0, self::MAX ) : array();
 		$titles = isset( $_POST['title'] ) && is_array( $_POST['title'] ) ? wp_unslash( $_POST['title'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized per product.
@@ -207,7 +210,8 @@ class GSUP_Bulk_Tidy {
 				$product->set_name( sanitize_text_field( $titles[ $id ] ) );
 			}
 			if ( $do['desc'] ) {
-				$product->set_description( GSUP_Tidy::description( $product->get_description(), $product->get_name() ) );
+				$clean = GSUP_Tidy::description( $product->get_description(), $product->get_name() );
+				$product->set_description( GSUP_Creator::localize_images( $clean, $id, $product->get_name(), 8 ) );
 			}
 			$attributes = $product->get_attributes();
 			$renames    = array();

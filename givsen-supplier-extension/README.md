@@ -22,8 +22,5 @@ Needs the **Givsen Supplier** WordPress plugin on the store.
 3. Click **Send to import list**. Repeat for each option you want (e.g. Red/Australia, Blue/Australia).
 4. In WordPress, link each import-list row to the matching product or variation.
 
-## Import reviews
-On a product page, open the **Add to Givsen** card, choose which reviews (e.g. 4★ and up, with text, 20 reviews) and click **Import reviews to my store**. The product must already be linked in your store. Reviews wait for your approval in **Products → Reviews** unless you've chosen to publish them straight away (plugin Settings → Chrome extension & reviews).
-
 ## Updating
 Replace the folder's contents with the new version, then click the reload arrow on the extension in `chrome://extensions` and refresh any open AliExpress tabs.

@@ -47,15 +47,6 @@ class GSUP_REST {
 				'permission_callback' => array( __CLASS__, 'verify' ),
 			)
 		);
-		register_rest_route(
-			self::NS,
-			'/reviews',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'reviews' ),
-				'permission_callback' => array( __CLASS__, 'verify' ),
-			)
-		);
 		// AliExpress sends you back here after you approve the connection. Protected by a one-time state code.
 		register_rest_route(
 			self::NS,
@@ -101,10 +92,25 @@ class GSUP_REST {
 		if ( abs( time() - (int) $ts ) > self::MAXAGE ) {
 			return new WP_Error( 'gsup_expired', 'Request expired. Check that your computer’s clock is correct.', array( 'status' => 401 ) );
 		}
-		$expected = hash_hmac( 'sha256', $ts . '.' . $request->get_body(), $secret );
-		if ( ! hash_equals( $expected, $sig ) ) {
+		// Version 2 (extension 0.4.1+) also signs the method and endpoint, so a request can't be replayed
+		// against a different endpoint. Version 1 (older extensions) is still accepted for these endpoints;
+		// any endpoint added later requires version 2.
+		$route  = '/' . ltrim( (string) preg_replace( '#^/?' . preg_quote( self::NS, '#' ) . '#', '', $request->get_route() ), '/' );
+		$v2     = '2' === (string) $request->get_header( 'x-gsup-sig-version' );
+		$legacy = in_array( $route, array( '/ping', '/import', '/categories' ), true );
+		$signed = $v2 ? $ts . '.' . strtoupper( $request->get_method() ) . '.' . $route . '.' . $request->get_body() : $ts . '.' . $request->get_body();
+		if ( ! $v2 && ! $legacy ) {
+			return new WP_Error( 'gsup_old_extension', 'Update the Givsen Supplier Chrome extension to use this.', array( 'status' => 401 ) );
+		}
+		if ( ! hash_equals( hash_hmac( 'sha256', $signed, $secret ), $sig ) ) {
 			return new WP_Error( 'gsup_bad_key', 'Connection key doesn’t match. Copy it again from WooCommerce → Givsen Supplier → Settings.', array( 'status' => 401 ) );
 		}
+		// Each signed request works once (kept for as long as its timestamp is valid).
+		$seen = 'gsup_sig_' . substr( $sig, 0, 40 );
+		if ( get_transient( $seen ) ) {
+			return new WP_Error( 'gsup_replayed', 'This request was already used. Try again.', array( 'status' => 401 ) );
+		}
+		set_transient( $seen, 1, 2 * self::MAXAGE );
 		return true;
 	}
 
@@ -133,19 +139,6 @@ class GSUP_REST {
 				'categories' => $list,
 			)
 		);
-	}
-
-	public static function reviews( WP_REST_Request $request ) {
-		$data = $request->get_json_params();
-		if ( ! is_array( $data ) || empty( $data['reviews'] ) || ! is_array( $data['reviews'] ) ) {
-			return new WP_Error( 'gsup_bad_json', 'No reviews sent.', array( 'status' => 400 ) );
-		}
-		$result = GSUP_Reviews::import( isset( $data['product_id'] ) ? (string) $data['product_id'] : '', $data['reviews'] );
-		if ( is_wp_error( $result ) ) {
-			$result->add_data( array( 'status' => 400 ) );
-			return $result;
-		}
-		return rest_ensure_response( array_merge( array( 'ok' => true ), $result ) );
 	}
 
 	public static function import( WP_REST_Request $request ) {

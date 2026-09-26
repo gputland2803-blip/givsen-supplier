@@ -12,7 +12,8 @@ defined( 'ABSPATH' ) || exit;
 
 class GSUP_Creator {
 
-	const MAX_GALLERY = 6;
+	const MAX_GALLERY = 10;
+	const MAX_DESC_PHOTOS = 8;
 	const MAX_OPTION_IMAGES = 12;
 
 	/* ------------------------------------------------------------ pricing */
@@ -116,7 +117,12 @@ class GSUP_Creator {
 	 * @param array    $opts {
 	 *     @type array $names            Option name renames: AliExpress name => your name.
 	 *     @type array $values           Option value renames: AliExpress name => [AliExpress value => your value].
-	 *     @type bool  $tidy_description Clean AliExpress styling out of the description (default true).
+	 *     @type string $description     'text' — AliExpress's words only, to rewrite (default); 'clean' — cleaned, with its images
+	 *                                   copied into your Media Library; 'empty' — none.
+	 *     @type int   $photos           Product photos to copy (0–10, default 10).
+	 *     @type bool  $desc_photos      Also copy the description's photos into the gallery (default true; not with 'clean',
+	 *                                   which keeps them in the description).
+	 *     @type bool  $option_photos    Copy each option's photo onto its variation (default true).
 	 *     @type bool  $specs            Add item specifics to "Additional information" (default true).
 	 *     @type bool  $short            Short description from the first specifics (default false).
 	 * }
@@ -127,7 +133,10 @@ class GSUP_Creator {
 			array(
 				'names'            => array(),
 				'values'           => array(),
-				'tidy_description' => true,
+				'description'      => 'text',
+				'photos'           => self::MAX_GALLERY,
+				'option_photos'    => true,
+				'desc_photos'      => true,
 				'specs'            => true,
 				'short'            => false,
 			),
@@ -179,7 +188,11 @@ class GSUP_Creator {
 		$wc = $is_variable ? new WC_Product_Variable() : new WC_Product_Simple();
 		$wc->set_name( $title );
 		$wc->set_status( 'draft' );
-		$wc->set_description( $opts['tidy_description'] ? GSUP_Tidy::description( $product['description'], $title ) : self::clean_description( $product['description'] ) );
+		if ( 'text' === $opts['description'] ) {
+			$wc->set_description( GSUP_Tidy::description_text( $product['description'] ) );
+		} elseif ( 'clean' === $opts['description'] ) {
+			$wc->set_description( GSUP_Tidy::description( $product['description'], $title ) ); // Images moved to your site below.
+		}
 		$specs = $opts['specs'] || $opts['short'] ? GSUP_Tidy::specs( isset( $product['specs'] ) ? $product['specs'] : array() ) : array();
 		if ( $opts['short'] && $specs ) {
 			$wc->set_short_description( GSUP_Tidy::short_description( $specs ) );
@@ -262,10 +275,29 @@ class GSUP_Creator {
 
 		// Images: main + gallery.
 		$image_ids = array();
-		foreach ( array_slice( $product['images'], 0, self::MAX_GALLERY ) as $url ) {
+		foreach ( array_slice( $product['images'], 0, max( 0, min( 10, (int) $opts['photos'] ) ) ) as $url ) {
 			$id = self::sideload( $url, $product_id, $title );
 			if ( $id ) {
 				$image_ids[] = $id;
+			}
+		}
+		// The description's own photos (detail shots, size charts) → gallery, so rewriting the text loses nothing.
+		if ( $opts['desc_photos'] && 'clean' !== $opts['description'] ) {
+			$have = array();
+			foreach ( $product['images'] as $u ) {
+				$have[ self::image_key( $u ) ] = true;
+			}
+			$added = 0;
+			foreach ( self::description_images( $product['description'] ) as $u ) {
+				if ( $added >= self::MAX_DESC_PHOTOS || isset( $have[ self::image_key( $u ) ] ) ) {
+					continue;
+				}
+				$have[ self::image_key( $u ) ] = true;
+				$id = self::sideload( $u, $product_id, $title );
+				if ( $id ) {
+					$image_ids[] = $id;
+					++$added;
+				}
 			}
 		}
 		if ( $image_ids ) {
@@ -293,7 +325,7 @@ class GSUP_Creator {
 				$v->set_parent_id( $product_id );
 				$v->set_attributes( $attrs );
 				self::apply_price_and_stock( $v, $sku, $freight );
-				if ( '' !== $img ) {
+				if ( '' !== $img && $opts['option_photos'] ) {
 					if ( ! isset( $image_cache[ $img ] ) && count( $image_cache ) < self::MAX_OPTION_IMAGES ) {
 						$image_cache[ $img ] = self::sideload( $img, $product_id, $title . ' — ' . self::option_text( $sku ) );
 					}
@@ -314,6 +346,16 @@ class GSUP_Creator {
 		}
 		GSUP_Profit::$paused = false;
 		wc_delete_product_transients( $product_id );
+
+		if ( 'clean' === $opts['description'] ) {
+			$html = self::localize_images( (string) get_post_field( 'post_content', $product_id ), $product_id, $title );
+			wp_update_post(
+				array(
+					'ID'           => $product_id,
+					'post_content' => $html,
+				)
+			);
+		}
 
 		self::mark_import_rows( $product['product_id'], $product_id );
 		if ( class_exists( 'GSUP_CBR' ) ) {
@@ -380,6 +422,50 @@ class GSUP_Creator {
 		);
 	}
 
+	/** AliExpress-hosted images in a description, in order. */
+	public static function description_images( $html ) {
+		$out = array();
+		if ( preg_match_all( '#<img\b[^>]*\bsrc=(["\']?)([^"\'\s>]+)\1#i', (string) $html, $m ) ) {
+			foreach ( $m[2] as $u ) {
+				$u    = 0 === strpos( $u, '//' ) ? 'https:' . $u : $u;
+				$host = strtolower( (string) wp_parse_url( $u, PHP_URL_HOST ) );
+				if ( preg_match( '/(^|\.)(alicdn\.com|aliexpress\.com|aliexpress-media\.com)$/', $host ) && ! preg_match( '/\.gif(\?|$)/i', $u ) ) {
+					$out[ $u ] = $u; // GIFs are usually banners and "add to wishlist" buttons.
+				}
+			}
+		}
+		return array_values( $out );
+	}
+
+	/** Same photo whatever size/format suffix AliExpress added. */
+	private static function image_key( $url ) {
+		return strtolower( preg_replace( '/(_\d+x\d+[^.\/]*)?\.(jpe?g|png|webp)(_.*)?$/i', '', (string) $url ) );
+	}
+
+	/**
+	 * Copy a description's AliExpress-hosted images into the Media Library and point the description at the copies,
+	 * so nothing on the page loads from AliExpress. Images that can't be copied are removed.
+	 */
+	public static function localize_images( $html, $product_id, $title, $max = 15 ) {
+		$done = array();
+		return preg_replace_callback(
+			'#<img\b[^>]*\bsrc=(["\'])([^"\']+)\1[^>]*>#i',
+			function ( $m ) use ( &$done, $product_id, $title, $max ) {
+				$src  = $m[2];
+				$host = strtolower( (string) wp_parse_url( $src, PHP_URL_HOST ) );
+				if ( ! preg_match( '/(^|\.)(alicdn\.com|aliexpress\.com|aliexpress-media\.com)$/', $host ) ) {
+					return $m[0]; // Already somewhere else.
+				}
+				if ( ! isset( $done[ $src ] ) ) {
+					$id           = count( $done ) < $max ? self::sideload( $src, $product_id, $title ) : 0;
+					$done[ $src ] = $id ? (string) wp_get_attachment_url( $id ) : '';
+				}
+				return '' === $done[ $src ] ? '' : str_replace( $src, $done[ $src ], $m[0] );
+			},
+			(string) $html
+		);
+	}
+
 	/** AliExpress description HTML, minus scripts, styles and anything unsafe. */
 	private static function clean_description( $html ) {
 		$html = preg_replace( '#<(script|style|iframe|noscript)\b[^>]*>.*?</\1\s*>#is', '', (string) $html );
@@ -409,7 +495,7 @@ class GSUP_Creator {
 	}
 
 	/** Download an image from AliExpress into the Media Library. */
-	private static function sideload( $url, $product_id, $desc ) {
+	public static function sideload( $url, $product_id, $desc ) {
 		if ( ! function_exists( 'media_sideload_image' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/media.php';
 			require_once ABSPATH . 'wp-admin/includes/file.php';

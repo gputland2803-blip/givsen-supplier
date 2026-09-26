@@ -522,7 +522,7 @@ class GSUP_Orders {
 				$item->update_meta_data( GSUP_ITEM_TRACKING, $tracking );
 				$item->update_meta_data( GSUP_ITEM_CARRIER, $carrier );
 				$notes[] = sprintf( 'Tracking %1$s%2$s received from AliExpress for “%3$s”.', $tracking, '' !== $carrier ? ' (' . $carrier . ')' : '', $item->get_name() );
-				self::to_ast( $order, array_keys( $numbers ), $carrier );
+				self::to_ast( $order, $item, array_keys( $numbers ), $carrier );
 				++$found;
 			} elseif ( ! $item->get_meta( self::I_DEAD ) ) {
 				++$waiting;
@@ -590,35 +590,80 @@ class GSUP_Orders {
 	}
 
 	/** Advanced Shipment Tracking (zorem), when active. */
-	private static function to_ast( WC_Order $order, array $numbers, $carrier ) {
+	/**
+	 * Advanced Shipment Tracking (zorem), when active and the carrier is one it knows by name.
+	 * Unknown carriers stay with this plugin's own neutral tracking display.
+	 */
+	private static function to_ast( WC_Order $order, $item, array $numbers, $carrier ) {
 		if ( ! function_exists( 'ast_insert_tracking_number' ) || GSUP_Givsen::hide_from_buyer( $order ) ) {
 			return;
 		}
-		$provider = (string) apply_filters( 'gsup_ast_provider', 'Cainiao', $carrier, $order );
+		$provider = (string) apply_filters( 'gsup_ast_provider', self::local_carrier( $carrier ), $carrier, $order );
+		if ( '' === $provider ) {
+			return;
+		}
 		foreach ( $numbers as $no ) {
 			ast_insert_tracking_number( $order->get_id(), $no, $provider, time(), 0 );
 		}
+		$item->update_meta_data( '_gsup_in_ast', 1 );
+	}
+
+	/**
+	 * A carrier's everyday name for customers ("Australia Post", "CouriersPlease"…), or '' when it's an
+	 * AliExpress/Cainiao service name that customers shouldn't see.
+	 */
+	public static function local_carrier( $carrier ) {
+		$c   = strtolower( (string) $carrier );
+		$map = (array) apply_filters(
+			'gsup_local_carriers',
+			array(
+				'startrack'      => 'StarTrack',
+				'auspost'        => 'Australia Post',
+				'australia post' => 'Australia Post',
+				'au post'        => 'Australia Post',
+				'couriers please'=> 'CouriersPlease',
+				'couriersplease' => 'CouriersPlease',
+				'aramex'         => 'Aramex',
+				'fastway'        => 'Aramex',
+				'sendle'         => 'Sendle',
+				'tnt'            => 'TNT',
+				'toll'           => 'Toll',
+				'dhl'            => 'DHL',
+				'fedex'          => 'FedEx',
+				'ups'            => 'UPS',
+				'usps'           => 'USPS',
+				'nz post'        => 'NZ Post',
+				'royal mail'     => 'Royal Mail',
+			)
+		);
+		foreach ( $map as $needle => $name ) {
+			if ( false !== strpos( $c, $needle ) ) {
+				return $name;
+			}
+		}
+		return '';
 	}
 
 	/* ----------------------------------------------------- customer display */
 
 	public static function tracking_url( $number ) {
-		return (string) apply_filters( 'gsup_tracking_url', 'https://global.cainiao.com/newDetail.htm?mailNoList=' . rawurlencode( $number ), $number );
+		// 17TRACK works out the carrier from the number and doesn't mention where the item was bought.
+		return (string) apply_filters( 'gsup_tracking_url', 'https://t.17track.net/en#nums=' . rawurlencode( $number ), $number );
 	}
 
 	/** @return array<int,array{name:string,numbers:string[],carrier:string}> */
 	private static function customer_tracking( WC_Order $order ) {
-		if ( function_exists( 'ast_insert_tracking_number' ) || GSUP_Givsen::hide_from_buyer( $order ) ) {
-			return array(); // Advanced Shipment Tracking shows it / a gift's tracking would show the buyer where it went.
+		if ( GSUP_Givsen::hide_from_buyer( $order ) ) {
+			return array(); // A gift's tracking would show the buyer where it went.
 		}
 		$out = array();
 		foreach ( $order->get_items() as $item ) {
 			$tracking = trim( (string) $item->get_meta( GSUP_ITEM_TRACKING ) );
-			if ( '' !== $tracking ) {
+			if ( '' !== $tracking && ! $item->get_meta( '_gsup_in_ast' ) ) { // Advanced Shipment Tracking shows those.
 				$out[] = array(
 					'name'    => $item->get_name(),
 					'numbers' => preg_split( '/[\s,;]+/', $tracking, -1, PREG_SPLIT_NO_EMPTY ),
-					'carrier' => (string) $item->get_meta( GSUP_ITEM_CARRIER ),
+					'carrier' => self::local_carrier( (string) $item->get_meta( GSUP_ITEM_CARRIER ) ), // Never "AliExpress Standard Shipping".
 				);
 			}
 		}

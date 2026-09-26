@@ -36,6 +36,13 @@ class GSUP_CBR {
 		);
 	}
 
+	/** Keys that belong to WooCommerce or this plugin — never used as the CBR keys. */
+	public static function protected_key( $key ) {
+		$key  = strtolower( (string) $key );
+		$core = array( '_price', '_regular_price', '_sale_price', '_sku', '_stock', '_stock_status', '_manage_stock', '_backorders', '_product_attributes', '_thumbnail_id', '_product_image_gallery', '_visibility', '_featured', '_tax_status', '_tax_class', '_weight', '_length', '_width', '_height', '_virtual', '_downloadable', '_edit_lock', '_edit_last', '_wp_old_slug' );
+		return in_array( $key, $core, true ) || 0 === strpos( $key, '_gsup_' ) || 0 === strpos( $key, '_wc_' ) || 0 === strpos( $key, '_transient' ) || 0 === strpos( $key, 'attribute_' );
+	}
+
 	/** Warehouse → countries that see its products. */
 	public static function map() {
 		$map = get_option( 'gsup_cbr_map' );

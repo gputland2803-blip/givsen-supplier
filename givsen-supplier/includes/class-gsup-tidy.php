@@ -163,6 +163,73 @@ class GSUP_Tidy {
 		return '' !== $v ? $v : trim( (string) $value );
 	}
 
+	/**
+	 * Seller boilerplate that gives away where it came from, or makes no sense in your store
+	 * ("leave us 5-star feedback", "visit our store", "open a dispute"…). Filter gsup_tidy_boilerplate.
+	 */
+	public static function is_boilerplate( $text ) {
+		$pattern = (string) apply_filters(
+			'gsup_tidy_boilerplate',
+			'/aliexpress|ali\s*express|alibaba|taobao|dropship|\b(5|five)[\s-]*stars?\b|feedback|open(ing)? a dispute|buyer protection|our (online )?store|store home|add (our |to )?(store|wish\s*list)|follow (us|our)|contact us before|leave (us )?(a )?(positive )?(review|rating)|shipping (policy|time)s?:|payment:|return policy/i'
+		);
+		return (bool) preg_match( $pattern, (string) $text );
+	}
+
+	/** Remove whole paragraphs/list items/cells whose text is seller boilerplate. */
+	private static function drop_boilerplate( $h ) {
+		for ( $i = 0; $i < 2; $i++ ) {
+			$h = preg_replace_callback(
+				'#<(p|li|h[1-6]|td|th|div)\b[^>]*>((?:(?!<\1\b).)*?)</\1>#is',
+				function ( $m ) {
+					return self::is_boilerplate( wp_strip_all_tags( $m[2] ) ) ? '' : $m[0];
+				},
+				$h
+			);
+		}
+		return $h;
+	}
+
+	/**
+	 * AliExpress description as plain text to rewrite: paragraphs, lists and bold only —
+	 * no images, tables, layout or seller boilerplate.
+	 */
+	public static function description_text( $html ) {
+		$h = (string) $html;
+		$h = preg_replace( '#<(script|style|iframe|noscript|object|embed|form)\b[^>]*>.*?</\1\s*>#is', '', $h );
+		$h = preg_replace( '#<!--.*?-->#s', '', $h );
+		$h = preg_replace( '#<img\b[^>]*>#i', '', $h );
+		$h = preg_replace( '#</t[dh]>\s*</tr>#i', "\n", $h );
+		$h = preg_replace( '#</?(tr|div|section|article|table|tbody|thead|center|h[1-6])\b[^>]*>#i', "\n", $h );
+		$h = preg_replace( '#</t[dh]>[ \t]*<t[dh]\b[^>]*>#i', ': ', $h ); // Cells in a row: "Material: Soy wax".
+		$h = self::drop_boilerplate( $h );
+		$h = wp_kses(
+			$h,
+			array(
+				'p'      => array(),
+				'br'     => array(),
+				'ul'     => array(),
+				'ol'     => array(),
+				'li'     => array(),
+				'strong' => array(),
+				'b'      => array(),
+				'em'     => array(),
+			)
+		);
+		// Loose lines become paragraphs; boilerplate lines go.
+		$out = array();
+		foreach ( preg_split( "#\n+|<br\s*/?>\s*<br\s*/?>#i", $h ) as $chunk ) {
+			$chunk = trim( preg_replace( '/(&nbsp;|\s)+/u', ' ', $chunk ) );
+			$text  = trim( wp_strip_all_tags( $chunk ) );
+			if ( '' === $text || self::is_boilerplate( $text ) ) {
+				continue;
+			}
+			$out[] = preg_match( '#^<(p|ul|ol|li)\b#i', $chunk ) ? $chunk : '<p>' . $chunk . '</p>';
+		}
+		$h = implode( "\n", $out );
+		$h = preg_replace( '#<p>\s*</p>#', '', $h );
+		return trim( force_balance_tags( $h ) );
+	}
+
 	/** AliExpress description → clean HTML that follows the store's theme. */
 	public static function description( $html, $title = '' ) {
 		$h = (string) $html;
@@ -185,6 +252,7 @@ class GSUP_Tidy {
 			},
 			$h
 		);
+		$h = self::drop_boilerplate( $h );
 		// Empty blocks left behind.
 		for ( $i = 0; $i < 3; $i++ ) {
 			$h = preg_replace( '#<(p|div|strong|b|em|i|h\d|li|ul|td|tr)\b[^>]*>(\s|&nbsp;|<br\s*/?>)*</\1>#i', '', $h );

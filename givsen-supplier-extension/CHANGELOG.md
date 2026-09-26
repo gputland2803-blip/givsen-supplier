@@ -1,5 +1,9 @@
 # Givsen Supplier (Chrome extension) — Changelog
 
+## 0.4.1 — 2026-09-26
+- Review import removed (and with it the permission to read feedback.aliexpress.com).
+- Stronger request signing: each request also signs its method and endpoint, and the store accepts it only once. Needs plugin 0.8.2 or later — update both together.
+
 ## 0.4.0 — 2026-09-26
 - **Import reviews** on the Add to Givsen card: reads the listing's reviews (stars, text in English, photos, buyer country) with filters — minimum stars, with text, with photos only, how many — and adds them to the linked product(s) in your store (needs plugin 0.8.0). Duplicates are skipped.
 - Needs permission to read feedback.aliexpress.com (AliExpress's review feed); Chrome asks when you update.

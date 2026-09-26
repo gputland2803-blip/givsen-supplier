@@ -1,5 +1,20 @@
 # Givsen Supplier — Changelog
 
+## 0.8.2 — 2026-09-26
+Your store, not AliExpress's.
+- **Choose what Add to store brings in** ("What to bring into your store", remembered for next time):
+  - Description: *the wording only, to rewrite* (default — paragraphs, lists and spec rows, no layout), *cleaned with its images* (images copied to your site), or *nothing*.
+  - Photos: up to 10 product photos (default all, up to 10), each option's photo on its variation, and the description's own photos (detail shots, size charts) added to the gallery — so rewriting the text loses no pictures.
+  - Item specifics and the short description, as before.
+- **Seller notes removed** from descriptions: "leave 5-star feedback", "visit our store", "contact us before opening a dispute", AliExpress/Alibaba mentions, shipping/payment/return policy blocks.
+- **Nothing customer-facing points at AliExpress**: tracking links go to 17TRACK (works out the carrier from the number) instead of Cainiao; only everyday carrier names (Australia Post, StarTrack, CouriersPlease, Aramex…) are shown to customers, never "AliExpress Standard Shipping"; Advanced Shipment Tracking only gets tracking with a recognised carrier; description images can be copied to your site.
+- Bulk tidy-up: description cleaning is off by default (so it won't touch descriptions you've rewritten) and copies description images to your site when used.
+- **Review import removed** (plugin endpoint, setting and extension button).
+- **Security hardening**:
+  - Requests from the Chrome extension are signed together with their method and endpoint (extension 0.4.1) and each is accepted only once; older extensions still work for their original endpoints.
+  - AliExpress app details, connecting/disconnecting, automatic ordering and payment, and the connection key are administrators-only (shop managers can use everything else).
+  - Country-restriction keys can't be pointed at WooCommerce's own product data (price, stock…).
+
 ## 0.8.1 — 2026-09-26
 Works with the Givsen gift plugin (tested against Givsen for WooCommerce 1.4.2; only active when it is).
 - **Business gifting**: the paid parent order is never placed on AliExpress (it ships nothing; the panel says so). Each recipient's $0 order is placed as normal — the "would lose money" check and its profit now use the parent's price, shipping and fees per recipient instead of $0.

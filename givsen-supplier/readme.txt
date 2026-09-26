@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.8.1
+Stable tag: 0.8.2
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -27,11 +27,13 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 * Backup suppliers that take over automatically.
 * Late-parcel alerts and delivery tracking with a "delivered" email.
 * Monthly profit report.
-* AliExpress review import via the Chrome extension.
 
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.8.2 =
+* Choose what Add to store brings in (description as plain text to rewrite / cleaned with images / none; photos; description photos to gallery; specifics), remembered. Nothing customer-facing mentions or loads from AliExpress. Review import removed. Security hardening.
 
 = 0.8.1 =
 * Works with the Givsen gift plugin: Business gifting parents never ordered, $0 recipient orders checked and costed at the parent's price, gift tracking kept from the buyer, gift-worded delivered emails (recipient for Business gifting), fallback courier phone, extra-postage payments in the profit report.

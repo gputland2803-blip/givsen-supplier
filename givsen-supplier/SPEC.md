@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.8.1 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.8.2 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -146,8 +146,14 @@ Tab `reports`: `GSUP_Report::month()` over paid statuses, 100 orders a page, usi
 ## Bulk tidy-up
 Bulk action `gsup_tidy` → `tab=tidy&ids=` (max 50). Options: titles (editable), descriptions, specs (AliExpress listings fetched in parallel; only names not already on the product), custom option names/values (unique; variations updated, case/slug-tolerant). `_gsup_tidy_undo` saves title, description, `_product_attributes` and variations' attribute meta; "Undo tidy-up" restores them.
 
-## Reviews
-Signed `POST /reviews` {product_id, reviews: [{id, name, country, rating 1–5, text, date, images[]}]} (max 50). Added to every product linked to the AliExpress product as `review` comments (rating, verified 0, `_gsup_ae_review_id`, `_gsup_review_images` — AliExpress image hosts only, max 6); approved only if `gsup_reviews_publish` = yes; duplicates by review ID skipped; product rating recounted. Photos shown under the review text.
+## Add to store: what to bring
+Per-user `gsup_import_prefs`: description `text` (`GSUP_Tidy::description_text()` — p/ul/ol/li/strong/em only, table rows "Name: value", boilerplate removed) / `clean` (`GSUP_Tidy::description()` + `GSUP_Creator::localize_images()`, max 15) / `empty`; `photos` 0–10 (default 10); `option_photos`; `desc_photos` (description images from AliExpress hosts, no GIFs, not already among the listing photos, max 8, appended to the gallery; not with `clean`); `specs`; `short`. Boilerplate: `GSUP_Tidy::is_boilerplate()` (filter `gsup_tidy_boilerplate`).
+
+## Customer-facing
+Tracking link `https://t.17track.net/en#nums=` (filter `gsup_tracking_url`). Carrier shown only via `GSUP_Orders::local_carrier()` (filter `gsup_local_carriers`); AST only when a local carrier is recognised (item `_gsup_in_ast`), otherwise the plugin's own display.
+
+## Security
+Signed requests: `X-Gsup-Sig-Version: 2` → HMAC of `ts.METHOD./route.body`; v1 (`ts.body`) accepted only for /ping, /import, /categories. Each signature accepted once (transient for 10 min). Admin-only (`manage_options`): save app, connect, disconnect, automatic ordering, new connection key. CBR keys refused when `GSUP_CBR::protected_key()`.
 
 ## Change supplier
 `tab=remap&product=<id>` (Supplier tab button; links from products list, order panel, sync email). New link → listing fetched for the product's warehouse (single ships-from) else AU; warehouse switchable. Auto-match (`GSUP_Remap::auto_match`): words from each item's attribute values + stored AliExpress option text vs each new option's text (filler, "color/size", piece counts dropped; numbers kept); score = overlap ÷ smaller side (×0.8) + Jaccard (×0.2); greedy one-to-one, threshold 0.5; single item + single option always match; below 0.8 flagged "best guess". Save: SKU/option/cost/ships-from/delivery fee+method/stock on matched items (regular price kept unless "reprice"); unmatched → SKU/option removed, out of stock, `_gsup_option_gone`. Parent: new product ID, `_gsup_supplier_history` (last 10), sync flags cleared, `_gsup_ship_quoted` set, republished if chosen and drafted by the sync, margin flag, CBR (overwritten when the warehouse changed).

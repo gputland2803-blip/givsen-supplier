@@ -28,7 +28,8 @@ async function callStore(route, method, payload, settings) {
   }
   const body = method === 'GET' ? '' : JSON.stringify(payload || {});
   const ts = String(Math.floor(Date.now() / 1000));
-  const signature = await hmacHex(key, ts + '.' + body);
+  // Signs the method and endpoint too (signature version 2), so a request can't be reused elsewhere.
+  const signature = await hmacHex(key, ts + '.' + method + '.' + '/' + route + '.' + body);
   let res;
   try {
     res = await fetch(site + API_BASE + route, {
@@ -36,7 +37,7 @@ async function callStore(route, method, payload, settings) {
       credentials: 'omit',
       cache: 'no-store',
       headers: Object.assign(
-        { 'X-Gsup-Timestamp': ts, 'X-Gsup-Signature': signature },
+        { 'X-Gsup-Timestamp': ts, 'X-Gsup-Signature': signature, 'X-Gsup-Sig-Version': '2' },
         method === 'GET' ? {} : { 'Content-Type': 'application/json' }
       ),
       body: method === 'GET' ? undefined : body,
@@ -57,18 +58,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return false;
   if (msg.type === 'gsup:import') {
     callStore('import', 'POST', msg.payload).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'gsup:reviews') {
-    callStore('reviews', 'POST', msg.payload).then(sendResponse);
-    return true;
-  }
-  if (msg.type === 'gsup:feedback') {
-    // Fallback when the page itself can't read AliExpress's review feed.
-    fetch(msg.url, { credentials: 'include', cache: 'no-store' })
-      .then((r) => r.json())
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch(() => sendResponse({ ok: false }));
     return true;
   }
   if (msg.type === 'gsup:categories') {

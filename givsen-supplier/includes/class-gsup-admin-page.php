@@ -15,7 +15,7 @@ class GSUP_Admin_Page {
 		add_filter( 'woocommerce_screen_ids', array( __CLASS__, 'screen_ids' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ), 20 );
 		add_action( 'admin_notices', array( __CLASS__, 'product_screen_notices' ) );
-		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_reviews' ) as $action ) {
+		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply' ) as $action ) {
 			add_action( 'admin_post_gsup_' . $action, array( __CLASS__, 'handle_' . $action ) );
 		}
 	}
@@ -279,7 +279,7 @@ class GSUP_Admin_Page {
 			'pricing'    => array( 'Pricing & profit', 'Pricing & profit', 'How new products are priced, and how margin is worked out.' ),
 			'sync'       => array( 'Daily sync', 'Daily sync', 'Keep stock, costs and delivery fees in step with AliExpress.' ),
 			'countries'  => array( 'Country restrictions', 'Country restrictions', 'Show each product only in the countries its warehouse serves (CBR).' ),
-			'extension'  => array( 'Chrome extension', 'Chrome extension & reviews', 'Connect the Add to Givsen button to this store, and import AliExpress reviews.' ),
+			'extension'  => array( 'Chrome extension', 'Chrome extension', 'Connect the Add to Givsen button to this store.' ),
 		);
 	}
 
@@ -493,11 +493,6 @@ class GSUP_Admin_Page {
 		echo '<tr><th scope="row">Site address</th><td><code>' . esc_html( $site ) . '</code> ' . gsup_copy_button( $site ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo '<tr><th scope="row">Connection key</th><td><code class="gsup-key">' . esc_html( $key ) . '</code> ' . gsup_copy_button( $key ) . '<p class="description">Anyone with this key can add items to your import list (nothing else). Keep it private.</p></td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo '</tbody></table>';
-		echo '<h3>Reviews</h3><p>On an AliExpress product page, open the <strong>Add to Givsen</strong> card and click <strong>Import reviews</strong> to copy its reviews (with stars and photos) to the linked product in your store.</p>';
-		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form"><input type="hidden" name="action" value="gsup_save_reviews">';
-		wp_nonce_field( 'gsup_save_reviews' );
-		echo '<p><label><input type="checkbox" name="publish" value="yes"' . checked( GSUP_Reviews::publish_now(), true, false ) . '> Publish imported reviews straight away</label><br><span class="description">Off: they wait in <a href="' . esc_url( admin_url( 'edit.php?post_type=product&page=product-reviews' ) ) . '">Products → Reviews</a> for you to approve.</span></p>';
-		echo '<p><button type="submit" class="button button-primary">Save</button></p></form>';
 		echo '<h3>Replace the key</h3><p class="gsup-meta">Only if you think someone else has it. The extension stops working until you paste the new key into it.</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="gsup_regen_key">';
@@ -671,9 +666,25 @@ class GSUP_Admin_Page {
 			echo '</tbody></table>';
 		}
 
-		echo '<h2>' . ( $opt_names ? '6' : '5' ) . '. Description</h2>';
-		echo '<p><label><input type="checkbox" name="tidy_description" value="1" checked> Clean up the description — remove AliExpress’s styling, fixed sizes and links back to AliExpress so it follows your theme</label><br>';
-		echo '<label><input type="checkbox" name="specs" value="1" checked> Add the item specifics (material, size…) to the <strong>Additional information</strong> tab</label>';
+		$prefs = self::import_prefs();
+		echo '<h2>' . ( $opt_names ? '6' : '5' ) . '. What to bring into your store</h2>';
+		echo '<table class="form-table gsup-settings gsup-bring"><tbody>';
+		echo '<tr><th scope="row">Description</th><td><fieldset>';
+		foreach (
+			array(
+				'text'  => array( 'The wording only, to rewrite', 'Paragraphs and lists, without layout or seller notes like “leave 5-star feedback”. Its photos can go in the gallery (below).' ),
+				'clean' => array( 'Cleaned, with its images', 'Seller notes and AliExpress styling removed; images copied to your site.' ),
+				'empty' => array( 'Nothing — I’ll write my own', '' ),
+			) as $value => $text
+		) {
+			echo '<label style="display:block;margin-bottom:4px"><input type="radio" name="description" value="' . esc_attr( $value ) . '"' . checked( $prefs['description'], $value, false ) . '> ' . esc_html( $text[0] ) . ( '' !== $text[1] ? ' <span class="gsup-meta">— ' . esc_html( $text[1] ) . '</span>' : '' ) . '</label>';
+		}
+		echo '</fieldset></td></tr>';
+		echo '<tr><th scope="row">Photos</th><td><label>Copy the first <input type="number" name="photos" min="0" max="10" class="small-text" value="' . esc_attr( $prefs['photos'] ) . '"> product photos</label> <span class="gsup-meta">(0 = none; ' . count( $product['images'] ) . ' on AliExpress)</span><br>';
+		$desc_count = count( GSUP_Creator::description_images( $product['description'] ) );
+		echo '<label><input type="checkbox" name="option_photos" value="1"' . checked( $prefs['option_photos'], true, false ) . '> Each option’s photo on its variation</label><br>';
+		echo '<label><input type="checkbox" name="desc_photos" value="1"' . checked( $prefs['desc_photos'], true, false ) . '> Also add the description’s photos to the gallery</label> <span class="gsup-meta">(' . (int) $desc_count . ' found — detail shots, size charts; up to ' . (int) GSUP_Creator::MAX_DESC_PHOTOS . '; not needed with “Cleaned, with its images”)</span></td></tr>';
+		echo '<tr><th scope="row">Details</th><td><label><input type="checkbox" name="specs" value="1"' . checked( $prefs['specs'], true, false ) . '> Item specifics (material, size…) in the <strong>Additional information</strong> tab</label>';
 		$specs = GSUP_Tidy::specs( isset( $product['specs'] ) ? $product['specs'] : array() );
 		if ( $specs ) {
 			$preview = array();
@@ -682,8 +693,9 @@ class GSUP_Admin_Page {
 			}
 			echo ' <span class="gsup-meta">(' . esc_html( implode( ' · ', $preview ) . ( count( $specs ) > 4 ? ' …' : '' ) ) . ')</span>';
 		}
-		echo '<br><label><input type="checkbox" name="short" value="1"> Use the first few specifics as the short description</label></p>';
-		echo '<p class="gsup-meta">The product is created as a <strong>draft</strong> with AliExpress’s photos, so you can check the wording and prices before publishing. Photos are copied into your Media Library — this can take up to a minute.</p>';
+		echo '<br><label><input type="checkbox" name="short" value="1"' . checked( $prefs['short'], true, false ) . '> Short description from the first few specifics</label></td></tr>';
+		echo '</tbody></table><p class="gsup-meta">Your choices are remembered for next time. Photos are copied into your Media Library, so nothing on your product pages loads from AliExpress.</p>';
+		echo '<p class="gsup-meta">The product is created as a <strong>draft</strong>, so you can rewrite the wording and check prices before publishing. Copying photos can take up to a minute.</p>';
 		echo '<p><button type="submit" class="button button-primary button-hero gsup-create-btn">Create draft product</button></p>';
 		echo '</form>';
 	}
@@ -773,6 +785,9 @@ class GSUP_Admin_Page {
 	}
 
 	private static function render_auto() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			echo '<div class="notice notice-info inline"><p>Only an administrator can change these settings.</p></div>';
+		}
 
 		echo '<p>When an order reaches <strong>Processing</strong> — paid, or a Givsen gift once the recipient claims it — each item is placed on AliExpress in the background with the customer’s address, and the AliExpress order number is saved on the order. Tracking numbers are fetched every few hours for every order with an AliExpress order number (including ones you place by hand).</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form">';
@@ -916,6 +931,9 @@ class GSUP_Admin_Page {
 		$token     = GSUP_AliExpress::token();
 		$callback  = GSUP_AliExpress::callback_url();
 
+		if ( ! current_user_can( 'manage_options' ) ) {
+			echo '<div class="notice notice-info inline"><p>Only an administrator can change these settings.</p></div>';
+		}
 		echo '<h3 class="gsup-first">1. Your AliExpress app</h3>';
 		echo '<p>From your app in the AliExpress Open Platform console (App Management). Your App Secret is stored on your site only.</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form">';
@@ -1000,8 +1018,11 @@ class GSUP_Admin_Page {
 	/* ------------------------------------------------------------- handlers */
 
 	private static function guard( $nonce_action ) {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( 'You do not have permission to do that.', 403 );
+		// Settings that spend money or hand out access: administrators only.
+		$admin_only = array( 'gsup_ae_save_app', 'gsup_ae_connect', 'gsup_ae_disconnect', 'gsup_save_auto', 'gsup_regen_key' );
+		$cap        = in_array( $nonce_action, $admin_only, true ) ? 'manage_options' : 'manage_woocommerce';
+		if ( ! current_user_can( $cap ) ) {
+			wp_die( 'manage_options' === $cap ? 'Only an administrator can change this setting.' : 'You do not have permission to do that.', 403 );
 		}
 		check_admin_referer( $nonce_action );
 	}
@@ -1187,11 +1208,27 @@ class GSUP_Admin_Page {
 		update_user_meta( get_current_user_id(), 'gsup_last_categories', $cats );
 		gsup_flash( 'Draft product created from AliExpress with its supplier links set. Check the title, description' . ( $cats ? '' : ', category' ) . ' and prices, then click <strong>Publish</strong>.' );
 		$created = wc_get_product( $id );
-		if ( $created && ! $created->get_image_id() && ! empty( $product['images'] ) ) {
+		if ( $created && ! $created->get_image_id() && ! empty( $product['images'] ) && ( ! isset( $_POST['photos'] ) || (int) $_POST['photos'] > 0 ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
 			gsup_flash( 'The photos couldn’t be copied from AliExpress (your server may be blocking the download). Add them under <strong>Product image</strong> and <strong>Product gallery</strong>.', 'warning' );
 		}
 		wp_safe_redirect( admin_url( 'post.php?post=' . (int) $id . '&action=edit' ) );
 		exit;
+	}
+
+	/** Your last Add to store choices (description, photos, specifics). */
+	private static function import_prefs() {
+		$saved = get_user_meta( get_current_user_id(), 'gsup_import_prefs', true );
+		return array_merge(
+			array(
+				'description'   => 'text',
+				'photos'        => 10,
+				'option_photos' => true,
+				'desc_photos'   => true,
+				'specs'         => true,
+				'short'         => false,
+			),
+			is_array( $saved ) ? $saved : array()
+		);
 	}
 
 	/** Renames and text options from the Add to store form. */
@@ -1200,9 +1237,18 @@ class GSUP_Admin_Page {
 		$opts = array(
 			'names'            => array(),
 			'values'           => array(),
-			'tidy_description' => ! empty( $_POST['tidy_description'] ),
+			'description'      => isset( $_POST['description'] ) && in_array( $_POST['description'], array( 'text', 'clean', 'empty' ), true ) ? sanitize_key( $_POST['description'] ) : 'text',
+			'photos'           => isset( $_POST['photos'] ) ? max( 0, min( 10, (int) $_POST['photos'] ) ) : 10,
+			'option_photos'    => ! empty( $_POST['option_photos'] ),
+			'desc_photos'      => ! empty( $_POST['desc_photos'] ),
 			'specs'            => ! empty( $_POST['specs'] ),
 			'short'            => ! empty( $_POST['short'] ),
+		);
+		// Remember these for next time.
+		update_user_meta(
+			get_current_user_id(),
+			'gsup_import_prefs',
+			array_intersect_key( $opts, array_flip( array( 'description', 'photos', 'option_photos', 'desc_photos', 'specs', 'short' ) ) )
 		);
 		$name_orig  = isset( $_POST['rn_name_orig'] ) && is_array( $_POST['rn_name_orig'] ) ? wp_unslash( $_POST['rn_name_orig'] ) : array();
 		$name_new   = isset( $_POST['rn_name'] ) && is_array( $_POST['rn_name'] ) ? wp_unslash( $_POST['rn_name'] ) : array();
@@ -1330,6 +1376,10 @@ class GSUP_Admin_Page {
 		update_option( 'gsup_cbr_enabled', isset( $_POST['enabled'] ) ? 'yes' : 'no', false );
 		foreach ( array( 'type_key', 'countries_key', 'type_value' ) as $field ) {
 			$value = isset( $_POST[ $field ] ) ? preg_replace( '/[^A-Za-z0-9_\-]/', '', wp_unslash( $_POST[ $field ] ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- reduced to a meta key.
+			if ( 'type_value' !== $field && GSUP_CBR::protected_key( $value ) ) {
+				gsup_flash( esc_html( '“' . $value . '” is WooCommerce’s own product data, not a country setting — not saved.' ), 'error' );
+				continue;
+			}
 			update_option( 'gsup_cbr_' . $field, $value, false );
 		}
 		update_option( 'gsup_cbr_format', isset( $_POST['format'] ) && 'csv' === $_POST['format'] ? 'csv' : 'array', false );
@@ -1377,14 +1427,6 @@ class GSUP_Admin_Page {
 		}
 		gsup_flash( $parts ? 'Country restrictions: ' . esc_html( implode( ' · ', $parts ) ) . '.' : 'No linked products found.', empty( $results['set'] ) ? 'info' : 'success' );
 		wp_safe_redirect( gsup_settings_url( 'countries' ) );
-		exit;
-	}
-
-	public static function handle_save_reviews() {
-		self::guard( 'gsup_save_reviews' );
-		update_option( 'gsup_reviews_publish', isset( $_POST['publish'] ) ? 'yes' : 'no', false ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
-		gsup_flash( 'Saved.' );
-		wp_safe_redirect( gsup_settings_url( 'extension' ) );
 		exit;
 	}
 
