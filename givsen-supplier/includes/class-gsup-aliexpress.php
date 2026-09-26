@@ -586,6 +586,7 @@ class GSUP_AliExpress {
 			'image'      => isset( $images[0] ) ? $images[0] : '',
 			'images'     => $images,
 			'description' => (string) ( $base['detail'] ?? '' ),
+			'mobile_description' => (string) ( $base['mobile_detail'] ?? ( $result['ae_item_base_info_dto']['mobile_detail'] ?? '' ) ),
 			'specs'      => self::specs_of( $result ),
 			'currency'   => (string) ( $base['currency_code'] ?? '' ),
 			'status'     => $status,

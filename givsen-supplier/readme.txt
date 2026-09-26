@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.10.0
+Stable tag: 0.10.1
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -32,6 +32,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.10.1 =
+* Fix: listings whose AliExpress description is only images no longer end up with an empty description.
 
 = 0.10.0 =
 * Rewrite with AI: bulk-rewrite titles, descriptions and short descriptions with Claude in your store's voice, side by side, editable, with undo.

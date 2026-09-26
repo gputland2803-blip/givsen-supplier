@@ -44,6 +44,18 @@ ok( false === stripos( $clean, 'feedback' ) && false === stripos( $clean, 'href=
 $specs = GSUP_Tidy::specs( array( array( 'Brand Name', 'NONE' ), array( 'Origin', 'Mainland China' ), array( 'Material', 'Ceramic' ), array( 'Capacity', '350ml' ), array( 'is_customized', 'Yes' ), array( 'Material', 'Glaze' ) ) );
 ok( $specs === array( 'Material' => 'Ceramic, Glaze', 'Capacity' => '350ml' ), 'specifics: noise dropped, repeats merged' );
 
+// Image-only descriptions (very common on AliExpress) have no words…
+$image_only = '<div class="detailmodule_image"><img src="https://ae01.alicdn.com/kf/S1.jpg"><img src="https://ae01.alicdn.com/kf/S2.jpg"></div><div class="detailmodule_html"><div class="detail-desc-decorate-richtext"></div></div>';
+ok( '' === GSUP_Tidy::description_text( $image_only ), 'image-only description: no words (so a fallback is needed)' );
+// …but the mobile description often does.
+$mobile = json_encode( array( 'version' => '2.0.0', 'moduleList' => array( array( 'type' => 'text', 'data' => array( 'content' => 'Stainless steel pendant, 18K gold plated.' ) ), array( 'type' => 'image', 'images' => array( array( 'url' => 'https://ae01.alicdn.com/kf/S1.jpg' ) ) ), array( 'type' => 'text', 'data' => array( 'content' => 'Please leave 5 stars feedback!' ) ) ) ) );
+$mt = GSUP_Tidy::mobile_text( $mobile );
+ok( false !== strpos( $mt, 'Stainless steel pendant, 18K gold plated.' ) && false === stripos( $mt, 'feedback' ) && false === strpos( $mt, 'http' ), 'mobile description: text kept, seller notes and image links dropped' );
+ok( '' === GSUP_Tidy::mobile_text( '' ), 'no mobile description: empty' );
+// Last resort: a factual starter from the title, options and specifics.
+$st = GSUP_Tidy::starter_description( 'Heart Pendant Necklace', array( 'Material' => 'Stainless Steel', 'Chain Length' => '45cm' ), array( 'Metal Color' => array( 'White', 'Gold' ) ) );
+ok( 0 === strpos( $st, '<p>Heart Pendant Necklace.</p>' ) && false !== strpos( $st, '<li><strong>Metal Color:</strong> White, Gold</li>' ) && false !== strpos( $st, '<li><strong>Chain Length:</strong> 45cm</li>' ), 'starter description from facts' );
+
 $imgs = GSUP_Creator::description_images( '<p><img src="//ae01.alicdn.com/kf/A1.jpg"><img src="https://ae01.alicdn.com/kf/banner.gif"><img src="https://evil.example/x.jpg"><img src="//ae01.alicdn.com/kf/A1.jpg"><img src=https://ae-pic-a1.aliexpress-media.com/kf/B2.png></p>' );
 ok( $imgs === array( 'https://ae01.alicdn.com/kf/A1.jpg', 'https://ae-pic-a1.aliexpress-media.com/kf/B2.png' ), 'description photos: AliExpress hosts only, no GIFs, no repeats' );
 $k = new ReflectionMethod( 'GSUP_Creator', 'image_key' );

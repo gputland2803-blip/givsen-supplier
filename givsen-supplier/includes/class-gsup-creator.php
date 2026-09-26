@@ -13,6 +13,9 @@ defined( 'ABSPATH' ) || exit;
 class GSUP_Creator {
 
 	const MAX_GALLERY = 10;
+
+	/** What happened to the description on the last create(), for the message shown afterwards. */
+	public static $description_note = '';
 	const MAX_DESC_PHOTOS = 8;
 	const MAX_OPTION_IMAGES = 12;
 
@@ -188,10 +191,34 @@ class GSUP_Creator {
 		$wc = $is_variable ? new WC_Product_Variable() : new WC_Product_Simple();
 		$wc->set_name( $title );
 		$wc->set_status( 'draft' );
-		if ( 'text' === $opts['description'] ) {
-			$wc->set_description( GSUP_Tidy::description_text( $product['description'] ) );
-		} elseif ( 'clean' === $opts['description'] ) {
-			$wc->set_description( GSUP_Tidy::description( $product['description'], $title ) ); // Images moved to your site below.
+		self::$description_note = '';
+		if ( 'text' === $opts['description'] || 'clean' === $opts['description'] ) {
+			$desc = 'text' === $opts['description']
+				? GSUP_Tidy::description_text( $product['description'] )
+				: GSUP_Tidy::description( $product['description'], $title ); // Images moved to your site below.
+			if ( '' === trim( wp_strip_all_tags( $desc ) ) ) {
+				// AliExpress's description had no words (usually a stack of images): try the mobile description,
+				// then start one from the facts, so there's always something to rewrite.
+				$words = GSUP_Tidy::mobile_text( isset( $product['mobile_description'] ) ? $product['mobile_description'] : '' );
+				if ( '' !== trim( wp_strip_all_tags( $words ) ) ) {
+					self::$description_note = 'AliExpress’s description was only images, so the wording comes from its mobile description.';
+				} else {
+					$opts_text = array();
+					foreach ( $names as $n ) {
+						foreach ( $chosen as $sku ) {
+							foreach ( $sku['props'] as $p ) {
+								if ( $p['name'] === $n && ! $p['is_ship'] ) {
+									$opts_text[ $name_of( $n ) ][ $value_of( $n, $p['value'] ) ] = $value_of( $n, $p['value'] );
+								}
+							}
+						}
+					}
+					$words = GSUP_Tidy::starter_description( $title, GSUP_Tidy::specs( isset( $product['specs'] ) ? $product['specs'] : array() ), array_map( 'array_values', $opts_text ) );
+					self::$description_note = 'AliExpress’s description was only images (they’re in your gallery), so a starter description was made from the product’s details — rewrite it, or use Rewrite with AI.';
+				}
+				$desc = 'clean' === $opts['description'] && '' !== trim( (string) $product['description'] ) ? $words . "\n" . $desc : $words;
+			}
+			$wc->set_description( $desc );
 		}
 		$specs = $opts['specs'] || $opts['short'] ? GSUP_Tidy::specs( isset( $product['specs'] ) ? $product['specs'] : array() ) : array();
 		if ( $opts['short'] && $specs ) {

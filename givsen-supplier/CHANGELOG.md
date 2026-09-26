@@ -1,5 +1,8 @@
 # Givsen Supplier — Changelog
 
+## 0.10.1 — 2026-09-26
+- **Fix: empty descriptions on image-only listings.** Many AliExpress descriptions are just a stack of images, so "wording only" left nothing. Now, when the description has no words, Add to store uses AliExpress's mobile description (which often has the text), and failing that writes a plain starter description from the title, your chosen options and the item specifics — ready to rewrite or run through Rewrite with AI. A message after creating says which was used. The images still go into the gallery.
+
 ## 0.10.0 — 2026-09-26
 - **Rewrite with AI**: select products → Bulk actions → "Rewrite with AI" (or the link under a product's name). Claude writes a new title, description and short description for each, two at a time; you see old and new side by side, edit anything, and apply only the ones you tick. The old text is saved — "Undo text changes" on the Supplier tab (also covers bulk tidy-up, now including short descriptions).
   - Settings → AI writing: your Claude API key (administrators only, stored on your site), model — Claude Haiku 4.5 (cheapest, about 0.2¢ a product, default) or Claude Sonnet 5 (better writing, about 0.4¢) — your store's voice, extra instructions, title length, Australian/British/American spelling.

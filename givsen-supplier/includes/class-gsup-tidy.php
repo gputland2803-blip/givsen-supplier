@@ -244,6 +244,57 @@ class GSUP_Tidy {
 		return trim( force_balance_tags( $h ) );
 	}
 
+	/**
+	 * Text from AliExpress's mobile description — a JSON list of modules (text and images), or plain HTML.
+	 * Listings whose main description is only images often still have text here.
+	 */
+	public static function mobile_text( $mobile ) {
+		$mobile = (string) $mobile;
+		if ( '' === trim( $mobile ) ) {
+			return '';
+		}
+		$data = json_decode( $mobile, true );
+		if ( ! is_array( $data ) ) {
+			return self::description_text( $mobile ); // Plain HTML.
+		}
+		$texts = array();
+		$walk  = function ( $node ) use ( &$walk, &$texts ) {
+			if ( ! is_array( $node ) ) {
+				return;
+			}
+			foreach ( $node as $k => $v ) {
+				if ( is_string( $v ) && in_array( (string) $k, array( 'content', 'text', 'txt', 'value' ), true ) && '' !== trim( wp_strip_all_tags( $v ) ) && ! preg_match( '#^https?://#i', trim( $v ) ) ) {
+					$texts[] = $v;
+				} elseif ( is_array( $v ) ) {
+					$walk( $v );
+				}
+			}
+		};
+		$walk( $data );
+		return $texts ? self::description_text( '<p>' . implode( '</p><p>', $texts ) . '</p>' ) : '';
+	}
+
+	/**
+	 * A plain, factual starting description when AliExpress gives no usable wording (image-only listings):
+	 * the product name, its specifics and the options on offer — ready to rewrite, never invented.
+	 *
+	 * @param array $specs   Name => value (from specs()).
+	 * @param array $options Option name => values.
+	 */
+	public static function starter_description( $title, array $specs, array $options ) {
+		$li = '';
+		foreach ( $options as $name => $values ) {
+			if ( $values ) {
+				$li .= '<li><strong>' . esc_html( $name ) . ':</strong> ' . esc_html( implode( ', ', $values ) ) . '</li>';
+			}
+		}
+		foreach ( $specs as $name => $value ) {
+			$li .= '<li><strong>' . esc_html( $name ) . ':</strong> ' . esc_html( $value ) . '</li>';
+		}
+		$out = '<p>' . esc_html( rtrim( (string) $title, '. ' ) ) . '.</p>';
+		return $li ? $out . "\n<ul>" . $li . '</ul>' : $out;
+	}
+
 	/** AliExpress description → clean HTML that follows the store's theme. */
 	public static function description( $html, $title = '' ) {
 		$h = (string) $html;

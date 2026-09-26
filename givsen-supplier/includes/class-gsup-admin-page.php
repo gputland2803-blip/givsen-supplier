@@ -1292,6 +1292,9 @@ class GSUP_Admin_Page {
 		}
 		update_user_meta( get_current_user_id(), 'gsup_last_categories', $cats );
 		gsup_flash( 'Draft product created from AliExpress with its supplier links set. Check the title, description' . ( $cats ? '' : ', category' ) . ' and prices, then click <strong>Publish</strong>.' );
+		if ( '' !== GSUP_Creator::$description_note ) {
+			gsup_flash( esc_html( GSUP_Creator::$description_note ), 'info' );
+		}
 		$created = wc_get_product( $id );
 		if ( $created && ! $created->get_image_id() && ! empty( $product['images'] ) && ( ! isset( $_POST['photos'] ) || (int) $_POST['photos'] > 0 ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
 			gsup_flash( 'The photos couldn’t be copied from AliExpress (your server may be blocking the download). Add them under <strong>Product image</strong> and <strong>Product gallery</strong>.', 'warning' );
