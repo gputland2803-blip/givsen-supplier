@@ -84,6 +84,8 @@ function gsup_boot() {
 		require_once GSUP_DIR . 'includes/class-gsup-products-column.php';
 		require_once GSUP_DIR . 'includes/class-gsup-admin-page.php';
 		require_once GSUP_DIR . 'includes/class-gsup-order-panel.php';
+		require_once GSUP_DIR . 'includes/class-gsup-report.php';
+		GSUP_Report::init();
 		GSUP_Product_Fields::init();
 		GSUP_Products_Column::init();
 		GSUP_Admin_Page::init();

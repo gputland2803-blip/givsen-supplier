@@ -165,3 +165,10 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 
 .gsup-parcel { margin-top: 4px; }
 .gsup-parcel--ok { color: #1e6b34; font-weight: 600; }
+
+/* Profit report */
+.gsup-report { max-width: 1000px; margin-top: 10px; }
+.gsup-report td, .gsup-report th { text-align: right; }
+.gsup-report td:first-child, .gsup-report th:first-child { text-align: left; }
+.gsup-report-current td { background: #f0f6fc; }
+.gsup-report tfoot th { font-weight: 600; }

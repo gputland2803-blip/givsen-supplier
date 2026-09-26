@@ -262,6 +262,9 @@ class GSUP_Profit {
 				$cost += $lc['cost'];
 			}
 			$lines[ $item_id ] = array(
+				'product' => (int) ( $item->get_product_id() ? $item->get_product_id() : 0 ),
+				'name'    => $item->get_name(),
+				'qty'     => (int) $qty,
 				'revenue' => $rev,
 				'cost'    => $lc['cost'],
 				'source'  => $lc['source'],
@@ -307,7 +310,7 @@ class GSUP_Profit {
 	/** Order profit for the orders list: stored on the order until the order next changes. */
 	public static function cached_order_summary( WC_Order $order ) {
 		$modified = $order->get_date_modified();
-		$stamp    = ( $modified ? $modified->getTimestamp() : 0 ) . '|' . self::min_margin() . '|' . get_option( 'gsup_fee_percent', 0 ) . '|' . get_option( 'gsup_fee_fixed', 0 );
+		$stamp    = 'v2|' . ( $modified ? $modified->getTimestamp() : 0 ) . '|' . self::min_margin() . '|' . get_option( 'gsup_fee_percent', 0 ) . '|' . get_option( 'gsup_fee_fixed', 0 );
 		$cached   = $order->get_meta( '_gsup_profit_cache' );
 		if ( is_array( $cached ) && isset( $cached['stamp'] ) && $cached['stamp'] === $stamp ) {
 			return $cached['summary'];
