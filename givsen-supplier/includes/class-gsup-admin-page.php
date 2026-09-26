@@ -400,6 +400,17 @@ class GSUP_Admin_Page {
 				$todo[] = array( 'Order #' . $order->get_order_number() . ' has items that couldn’t be placed on AliExpress automatically.', $order->get_edit_order_url(), 'Open order' );
 			}
 		}
+		$late = function_exists( 'wc_get_orders' ) ? wc_get_orders(
+			array(
+				'limit'      => 10,
+				'status'     => array_keys( wc_get_order_statuses() ),
+				'meta_key'   => GSUP_Parcels::M_ALERT, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'meta_value' => 'yes', // phpcs:ignore WordPress.DB.SlowDBQuery
+			)
+		) : array();
+		foreach ( $late as $order ) {
+			$todo[] = array( 'Order #' . $order->get_order_number() . ' has a parcel that’s late or still without tracking.', $order->get_edit_order_url(), 'Open order' );
+		}
 		$low = ( new WP_Query(
 			array(
 				'post_type'              => 'product',
@@ -763,7 +774,20 @@ class GSUP_Admin_Page {
 		}
 		echo '</select><p class="description">Also used for the delivery fee in your costs and prices.</p></td></tr>';
 		echo '<tr><th scope="row">Safety</th><td><label><input type="checkbox" name="guard" value="yes"' . checked( GSUP_Orders::loss_guard(), true, false ) . '> Don’t place an item if AliExpress would charge more than the customer paid for it</label></td></tr>';
-		echo '<tr><th scope="row">When tracking arrives</th><td><label><input type="checkbox" name="complete" value="yes"' . checked( GSUP_Orders::complete_on_tracking(), true, false ) . '> Mark the order Completed once every item has tracking</label><p class="description">WooCommerce then sends the customer the “order complete” email, which includes the tracking links.' . ( function_exists( 'ast_insert_tracking_number' ) ? ' Tracking is also added to Advanced Shipment Tracking.' : '' ) . '</p></td></tr>';
+		$when = GSUP_Parcels::complete_when();
+		echo '<tr><th scope="row"><label for="gsup_complete_when">Mark orders Completed</label></th><td><select id="gsup_complete_when" name="complete_when">';
+		foreach (
+			array(
+				'tracking'  => 'When every item has tracking',
+				'delivered' => 'When every item has been delivered',
+				'no'        => 'Never — I’ll do it myself',
+			) as $value => $label
+		) {
+			echo '<option value="' . esc_attr( $value ) . '"' . selected( $when, $value, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select><p class="description">WooCommerce sends the customer its “order complete” email, which includes the tracking links.' . ( function_exists( 'ast_insert_tracking_number' ) ? ' Tracking is also added to Advanced Shipment Tracking.' : '' ) . '</p></td></tr>';
+		echo '<tr><th scope="row">Delivered</th><td><label><input type="checkbox" name="delivered_email" value="yes"' . checked( GSUP_Parcels::email_customer(), true, false ) . '> Email the customer when AliExpress’s tracking shows the parcel delivered</label></td></tr>';
+		echo '<tr><th scope="row">Late parcel alerts</th><td>Alert me when an item has no tracking <input type="number" name="notrack_days" min="1" max="60" class="small-text" value="' . esc_attr( GSUP_Parcels::no_tracking_days() ) . '"> days after ordering, or isn’t delivered <input type="number" name="grace_days" min="0" max="60" class="small-text" value="' . esc_attr( GSUP_Parcels::grace_days() ) . '"> days after AliExpress’s latest delivery estimate.<p class="description">You get an order note, one email per check, and a link to open a dispute on AliExpress while buyer protection still applies.</p></td></tr>';
 		echo '</tbody></table>';
 		echo '<p class="gsup-meta">Anything that can’t be placed — not linked to an exact option, gone from AliExpress, out of stock, no delivery to that country, or would lose money — is left for you with the reason on the order and an email to ' . esc_html( get_option( 'gsup_sync_email', get_option( 'admin_email' ) ) ) . '.</p>';
 		echo '<p><button type="submit" class="button button-primary">Save automatic ordering</button></p></form>';
@@ -1235,7 +1259,11 @@ class GSUP_Admin_Page {
 		update_option( 'gsup_auto_order', isset( $_POST['auto'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_auto_pay', isset( $_POST['pay'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_auto_loss_guard', isset( $_POST['guard'] ) ? 'yes' : 'no', false );
-		update_option( 'gsup_complete_on_tracking', isset( $_POST['complete'] ) ? 'yes' : 'no', false );
+		$when = isset( $_POST['complete_when'] ) ? sanitize_key( wp_unslash( $_POST['complete_when'] ) ) : 'tracking';
+		update_option( 'gsup_complete_when', in_array( $when, array( 'tracking', 'delivered', 'no' ), true ) ? $when : 'tracking', false );
+		update_option( 'gsup_delivered_email', isset( $_POST['delivered_email'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_late_notrack_days', max( 1, min( 60, isset( $_POST['notrack_days'] ) ? (int) $_POST['notrack_days'] : 7 ) ), false );
+		update_option( 'gsup_late_grace_days', max( 0, min( 60, isset( $_POST['grace_days'] ) ? (int) $_POST['grace_days'] : 5 ) ), false );
 		// phpcs:enable
 		update_option( 'gsup_ship_pref', in_array( $pref, array( 'cheapest_tracked', 'cheapest', 'fastest' ), true ) ? $pref : 'cheapest_tracked', false );
 		gsup_flash( GSUP_Orders::enabled() ? 'Saved. New Processing orders will be placed on AliExpress automatically.' : 'Saved. Automatic ordering is off.' );

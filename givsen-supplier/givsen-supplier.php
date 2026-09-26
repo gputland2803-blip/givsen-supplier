@@ -64,6 +64,8 @@ function gsup_boot() {
 	require_once GSUP_DIR . 'includes/class-gsup-profit.php';
 	require_once GSUP_DIR . 'includes/class-gsup-cbr.php';
 	require_once GSUP_DIR . 'includes/class-gsup-orders.php';
+	require_once GSUP_DIR . 'includes/class-gsup-parcels.php';
+	GSUP_Parcels::init();
 	require_once GSUP_DIR . 'includes/class-gsup-remap.php';
 	GSUP_Remap::init();
 	GSUP_Sync::init();
@@ -94,7 +96,7 @@ function gsup_boot() {
  * (settings changes re-check straight away), so it costs nothing on most requests.
  */
 function gsup_ensure_schedules() {
-	if ( get_transient( 'gsup_schedules_ok' ) ) {
+	if ( get_transient( 'gsup_schedules_ok' ) === GSUP_VERSION ) {
 		return;
 	}
 	if ( ! wp_next_scheduled( 'gsup_keep_alive' ) ) {
@@ -102,7 +104,7 @@ function gsup_ensure_schedules() {
 	}
 	GSUP_Sync::schedule();
 	GSUP_Orders::schedule();
-	set_transient( 'gsup_schedules_ok', 1, 12 * HOUR_IN_SECONDS );
+	set_transient( 'gsup_schedules_ok', GSUP_VERSION, 12 * HOUR_IN_SECONDS );
 }
 
 function gsup_notice_needs_woocommerce() {

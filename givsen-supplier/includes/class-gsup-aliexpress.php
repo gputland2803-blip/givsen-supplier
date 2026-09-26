@@ -914,4 +914,95 @@ class GSUP_AliExpress {
 			'tracking'         => $tracking,
 		);
 	}
+
+	/* ------------------------------------------------------------- parcels */
+
+	/**
+	 * Where parcels are, for several AliExpress orders at once.
+	 *
+	 * @param string[] $ae_order_ids
+	 * @return array<string,array|WP_Error> order ID => {delivered, delivered_at, last_time, last_text, events}
+	 */
+	public static function parcels( array $ae_order_ids ) {
+		$calls = array();
+		foreach ( array_unique( array_map( 'strval', $ae_order_ids ) ) as $id ) {
+			$calls[ $id ] = array(
+				'aliexpress.ds.order.tracking.get',
+				array(
+					'ae_order_id' => $id,
+					'language'    => 'en_US',
+				),
+			);
+		}
+		$out = array();
+		foreach ( self::request_many( $calls ) as $id => $data ) {
+			$out[ (string) $id ] = is_wp_error( $data ) ? $data : self::parse_parcel( $data );
+		}
+		return $out;
+	}
+
+	/** Every tracking event in a reply, whatever the nesting: [{time, text}], newest first. */
+	private static function parse_parcel( array $data ) {
+		$events = array();
+		$walk   = function ( $node ) use ( &$walk, &$events ) {
+			if ( ! is_array( $node ) ) {
+				return;
+			}
+			$text = '';
+			foreach ( array( 'tracking_detail_desc', 'detail_desc', 'desc', 'standerd_desc', 'standard_desc', 'tracking_name', 'status_desc' ) as $k ) {
+				if ( isset( $node[ $k ] ) && is_scalar( $node[ $k ] ) && '' !== trim( (string) $node[ $k ] ) ) {
+					$text = trim( (string) $node[ $k ] );
+					break;
+				}
+			}
+			$time = 0;
+			foreach ( array( 'time_stamp', 'event_time', 'time', 'gmt_time', 'date' ) as $k ) {
+				if ( isset( $node[ $k ] ) && is_scalar( $node[ $k ] ) && '' !== (string) $node[ $k ] ) {
+					$v    = (string) $node[ $k ];
+					$time = is_numeric( $v ) ? (int) ( (float) $v > 9999999999 ? (float) $v / 1000 : $v ) : (int) strtotime( $v );
+					break;
+				}
+			}
+			if ( '' !== $text && $time ) {
+				$events[] = array(
+					'time' => $time,
+					'text' => $text,
+				);
+				return;
+			}
+			foreach ( $node as $child ) {
+				$walk( $child );
+			}
+		};
+		$walk( $data );
+		usort(
+			$events,
+			function ( $a, $b ) {
+				return $b['time'] - $a['time'];
+			}
+		);
+		$delivered_at = null;
+		foreach ( $events as $e ) {
+			if ( self::is_delivered_text( $e['text'] ) ) {
+				$delivered_at = $e['time'];
+				break;
+			}
+		}
+		return array(
+			'delivered'    => null !== $delivered_at,
+			'delivered_at' => $delivered_at,
+			'last_time'    => $events ? $events[0]['time'] : 0,
+			'last_text'    => $events ? $events[0]['text'] : '',
+			'events'       => count( $events ),
+		);
+	}
+
+	/** "Delivered", "Signed for", "Picked up by recipient" — but not "delivery attempted / failed / to be delivered". */
+	public static function is_delivered_text( $text ) {
+		$t = strtolower( (string) $text );
+		if ( preg_match( '/not\s+delivered|undeliver|attempt|fail|unsuccessful|to be delivered|out for delivery|will be delivered|delivering|return(ed)? to sender/', $t ) ) {
+			return false;
+		}
+		return (bool) preg_match( '/\bdelivered\b|signed\s*(for|by)?|picked up by (the )?(recipient|customer|consignee)|collected by (the )?(recipient|customer)|已签收|妥投/u', $t );
+	}
 }

@@ -247,6 +247,7 @@ class GSUP_Order_Panel {
 				}
 				echo '<div class="gsup-meta">' . esc_html( implode( ' · ', $bits ) ) . '</div>';
 			}
+			self::render_parcel( $order, $item );
 			if ( $profit && isset( $profit['lines'][ $item_id ] ) ) {
 				self::render_line_profit( $profit['lines'][ $item_id ], $order );
 			}
@@ -338,6 +339,30 @@ class GSUP_Order_Panel {
 		echo '</p>';
 	}
 
+	/** Delivered / in transit / late, with a dispute link when it's late. */
+	private static function render_parcel( WC_Order $order, $item ) {
+		$ae = (string) $item->get_meta( GSUP_ITEM_AE_ORDER );
+		if ( '' === $ae ) {
+			return;
+		}
+		$delivered = (int) $item->get_meta( GSUP_Parcels::I_DELIVERED );
+		$last      = $item->get_meta( GSUP_Parcels::I_LAST );
+		if ( $delivered ) {
+			echo '<div class="gsup-parcel gsup-parcel--ok">✓ Delivered ' . esc_html( wp_date( 'j M Y', $delivered ) ) . '</div>';
+			return;
+		}
+		$first  = preg_split( '/[\s,;]+/', $ae, -1, PREG_SPLIT_NO_EMPTY );
+		$link   = ' <a href="' . esc_url( GSUP_Parcels::dispute_url( $first ? $first[0] : $ae ) ) . '" target="_blank" rel="noopener noreferrer">Open on AliExpress / dispute ↗</a>';
+		if ( $item->get_meta( GSUP_Parcels::I_LATE ) ) {
+			echo '<div class="gsup-warn">Late — should have arrived by ' . esc_html( wp_date( 'j M Y', GSUP_Parcels::due_by( $order, $item ) ) ) . '.' . $link . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
+		} elseif ( $item->get_meta( GSUP_Parcels::I_NOTRACK ) && '' === (string) $item->get_meta( GSUP_ITEM_TRACKING ) ) {
+			echo '<div class="gsup-warn">No tracking yet, ' . (int) GSUP_Parcels::no_tracking_days() . '+ days after ordering.' . $link . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
+		}
+		if ( is_array( $last ) && ! empty( $last[1] ) ) {
+			echo '<div class="gsup-meta gsup-parcel">In transit — ' . esc_html( $last[1] ) . ' (' . esc_html( wp_date( 'j M', (int) $last[0] ) ) . ') · expected by ' . esc_html( wp_date( 'j M', GSUP_Parcels::due_by( $order, $item ) ) ) . '</div>';
+		}
+	}
+
 	private static function ae_status_label( $status ) {
 		$map = array(
 			'PLACE_ORDER_SUCCESS'       => 'waiting for payment',
@@ -424,6 +449,7 @@ class GSUP_Order_Panel {
 			}
 			if ( $changed ) {
 				if ( $order_changed ) {
+					GSUP_Parcels::mark_placed( $item );
 					// A new AliExpress order number replaces whatever happened to the old one.
 					$item->delete_meta_data( GSUP_ITEM_PROBLEM );
 					$item->delete_meta_data( GSUP_Orders::I_PLACING );

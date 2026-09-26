@@ -33,6 +33,9 @@ class GSUP_Orders {
 	const M_CHECKED    = '_gsup_tracking_checked';  // Last tracking check (also rotates the queue).
 	const GIVE_UP_DAYS = 60;
 
+	/** Alerts raised during a tracking check, emailed together at the end. */
+	private static $alerts = array();
+
 	public static function init() {
 		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'queue' ), 20, 1 );
 		add_action( 'gsup_place_order', array( __CLASS__, 'place' ), 10, 1 );
@@ -52,7 +55,7 @@ class GSUP_Orders {
 	}
 
 	public static function complete_on_tracking() {
-		return 'no' !== get_option( 'gsup_complete_on_tracking', 'yes' );
+		return 'tracking' === GSUP_Parcels::complete_when();
 	}
 
 	/** Tracking checks every 4 hours. */
@@ -63,11 +66,15 @@ class GSUP_Orders {
 		if ( ! as_next_scheduled_action( 'gsup_tracking_check', array(), self::GROUP ) ) {
 			as_schedule_recurring_action( time() + 10 * MINUTE_IN_SECONDS, 4 * HOUR_IN_SECONDS, 'gsup_tracking_check', array(), self::GROUP );
 		}
+		if ( ! as_next_scheduled_action( 'gsup_parcel_check', array(), self::GROUP ) ) {
+			as_schedule_recurring_action( time() + 30 * MINUTE_IN_SECONDS, 12 * HOUR_IN_SECONDS, 'gsup_parcel_check', array(), self::GROUP );
+		}
 	}
 
 	public static function unschedule() {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
 			as_unschedule_all_actions( 'gsup_tracking_check', array(), self::GROUP );
+			as_unschedule_all_actions( 'gsup_parcel_check', array(), self::GROUP );
 			as_unschedule_all_actions( 'gsup_place_order' );
 		}
 	}
@@ -292,6 +299,7 @@ class GSUP_Orders {
 		$item->update_meta_data( GSUP_ITEM_AE_ORDER, $ae_order );
 		$item->update_meta_data( self::I_METHOD, $freight['name'] );
 		$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $cost, 2 ) );
+		GSUP_Parcels::mark_placed( $item, (int) $freight['max_days'] );
 		$item->save();
 		$order->add_order_note(
 			sprintf(
@@ -432,12 +440,15 @@ class GSUP_Orders {
 			}
 		}
 		$known = $numbers ? GSUP_AliExpress::get_orders( array_values( $numbers ) ) : array();
+		self::$alerts = array();
 		foreach ( $ids as $order_id ) {
 			$r = self::check_order( $order_id, $known );
 			if ( is_wp_error( $r ) && 'gsup_stop' === $r->get_error_code() ) {
 				break; // Connection trouble: try again next time.
 			}
 		}
+		GSUP_Parcels::email_alerts( self::$alerts );
+		self::$alerts = array();
 	}
 
 	/**
@@ -507,6 +518,11 @@ class GSUP_Orders {
 				++$found;
 			} elseif ( ! $item->get_meta( self::I_DEAD ) ) {
 				++$waiting;
+				$item->save();
+				$alert = GSUP_Parcels::check_no_tracking( $order, $item );
+				if ( $alert ) {
+					self::$alerts[] = $alert;
+				}
 			}
 			$item->save();
 		}
@@ -538,12 +554,14 @@ class GSUP_Orders {
 		if ( $waiting && ! $too_old && ! $closed ) {
 			$order->update_meta_data( self::M_AWAITING, 'yes' );
 			$order->save();
+			GSUP_Parcels::refresh_flags( $order );
 			return;
 		}
 		$was_waiting = 'yes' === $order->get_meta( self::M_AWAITING );
 		$order->delete_meta_data( self::M_AWAITING );
 		$order->save();
-		if ( $was_waiting && ! $waiting && self::complete_on_tracking() && 'processing' === $order->get_status() && self::all_lines_tracked( $order ) ) {
+		GSUP_Parcels::refresh_flags( $order );
+		if ( $was_waiting && ! $waiting && 'tracking' === GSUP_Parcels::complete_when() && 'processing' === $order->get_status() && self::all_lines_tracked( $order ) ) {
 			$order->update_status( 'completed', 'Givsen Supplier: every item has tracking from AliExpress.' );
 		}
 	}

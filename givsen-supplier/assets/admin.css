@@ -162,3 +162,6 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 .gsup-rename th { width: 200px; }
 .gsup-rename th input { width: 100%; font-weight: 600; }
 .gsup-rename-value input { width: 150px; margin: 2px 0; }
+
+.gsup-parcel { margin-top: 4px; }
+.gsup-parcel--ok { color: #1e6b34; font-weight: 600; }
