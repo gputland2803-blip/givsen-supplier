@@ -62,7 +62,7 @@ class GSUP_Admin_Page {
 			return;
 		}
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'import'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap', 'reports', 'tidy', 'ai' ), true ) ? $tab : 'import';
+		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap', 'reports', 'tidy', 'ai', 'cleanup' ), true ) ? $tab : 'import';
 		echo '<div class="wrap gsup-wrap">';
 		echo '<h1 class="wp-heading-inline">Givsen Supplier</h1>';
 		echo '<nav class="nav-tab-wrapper">';
@@ -76,6 +76,8 @@ class GSUP_Admin_Page {
 			echo '<span class="nav-tab nav-tab-active">Tidy text</span>';
 		} elseif ( 'ai' === $tab ) {
 			echo '<span class="nav-tab nav-tab-active">Rewrite with AI</span>';
+		} elseif ( 'cleanup' === $tab ) {
+			echo '<span class="nav-tab nav-tab-active">Clean-up</span>';
 		}
 		echo '<a class="nav-tab' . ( 'settings' === $tab ? ' nav-tab-active' : '' ) . '" href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '">Settings</a>';
 		echo '</nav>';
@@ -92,6 +94,8 @@ class GSUP_Admin_Page {
 			GSUP_Report::render();
 		} elseif ( 'remap' === $tab && class_exists( 'GSUP_Remap' ) ) {
 			GSUP_Remap::render();
+		} elseif ( 'cleanup' === $tab && class_exists( 'GSUP_Cleanup' ) ) {
+			GSUP_Cleanup::render();
 		} else {
 			self::render_import();
 		}
@@ -925,6 +929,7 @@ class GSUP_Admin_Page {
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="gsup_reach_now">';
 		wp_nonce_field( 'gsup_reach_now' );
 		echo '<button type="submit" class="button"' . disabled( (bool) $run || ! GSUP_AliExpress::is_connected(), true, false ) . '>Check all products now</button></form>';
+		echo '<h3>Clean-up</h3><p>Remove the country restrictions Givsen Supplier set, and merge products that are separate warehouse versions of one AliExpress listing: <a class="button" href="' . esc_url( GSUP_Cleanup::url() ) . '">Open clean-up</a></p>';
 	}
 
 	private static function render_sync() {
@@ -1152,6 +1157,9 @@ class GSUP_Admin_Page {
 	}
 
 	private static function render_cbr() {
+		if ( GSUP_CBR::worldwide() ) {
+			echo '<div class="notice notice-info inline"><p>Delivery by country is on (Settings → Selling worldwide), so restrictions are no longer set from warehouses — each product is shown wherever a warehouse can deliver it. <a href="' . esc_url( GSUP_Cleanup::url() ) . '">Remove the ones Givsen Supplier set</a> (yours stay).</p></div>';
+		}
 		$k   = GSUP_CBR::keys();
 		$map = GSUP_CBR::map();
 

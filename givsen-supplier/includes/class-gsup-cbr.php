@@ -19,8 +19,18 @@ class GSUP_CBR {
 	const DEFAULT_COUNTRIES_KEY = '_restricted_countries';
 	const DEFAULT_TYPE_VALUE    = 'specific';
 
+	const M_SET = '_gsup_cbr_set'; // What this plugin wrote: {type_key, countries_key, type, countries, at}.
+
+	/**
+	 * Off while the shop sells worldwide (Settings → Selling worldwide → delivery by country): each product is then
+	 * sold wherever a warehouse can deliver it, so the warehouse → countries mapping no longer applies.
+	 */
 	public static function enabled() {
-		return 'yes' === get_option( 'gsup_cbr_enabled', 'no' );
+		return 'yes' === get_option( 'gsup_cbr_enabled', 'no' ) && ! self::worldwide();
+	}
+
+	public static function worldwide() {
+		return 'yes' === get_option( 'gsup_worldwide_shop', 'no' );
 	}
 
 	/** @return array{type_key:string,countries_key:string,type_value:string,format:string} */
@@ -130,8 +140,91 @@ class GSUP_CBR {
 		}
 		update_post_meta( $product_id, $k['type_key'], $k['type_value'] );
 		update_post_meta( $product_id, $k['countries_key'], 'csv' === $k['format'] ? implode( ',', $countries ) : $countries );
+		self::record( $product_id, $countries );
 		wc_delete_product_transients( $product_id );
 		return 'set';
+	}
+
+	/** Remember that this plugin set the product's restriction (so it can be removed later without touching yours). */
+	public static function record( $product_id, array $countries ) {
+		$k = self::keys();
+		update_post_meta(
+			$product_id,
+			self::M_SET,
+			array(
+				'type_key'      => $k['type_key'],
+				'countries_key' => $k['countries_key'],
+				'type'          => $k['type_value'],
+				'countries'     => array_values( $countries ),
+				'at'            => time(),
+			)
+		);
+	}
+
+	/**
+	 * Who set a product's restriction: 'plugin' (recorded), 'likely' (not recorded — set before 0.16.0 — but exactly
+	 * what this plugin sets for its warehouse), 'hand' (anything else), or '' (no restriction).
+	 */
+	public static function who_set( $product_id ) {
+		$now = self::current( $product_id );
+		if ( '' === $now['type'] || 'all' === $now['type'] ) {
+			return '';
+		}
+		$rec = get_post_meta( $product_id, self::M_SET, true );
+		if ( is_array( $rec ) && $rec['type'] === $now['type'] && self::same( (array) $rec['countries'], $now['countries'] ) ) {
+			return 'plugin';
+		}
+		$product = wc_get_product( $product_id );
+		$ships   = $product ? self::warehouses( $product ) : array();
+		$map     = self::map();
+		if ( 1 === count( $ships ) && isset( $map[ $ships[0] ] ) && self::keys()['type_value'] === $now['type'] && self::same( array_values( (array) $map[ $ships[0] ] ), $now['countries'] ) ) {
+			return 'likely';
+		}
+		return 'hand';
+	}
+
+	/** Remove a restriction this plugin set. @return bool Removed. */
+	public static function remove( $product_id ) {
+		if ( ! in_array( self::who_set( $product_id ), array( 'plugin', 'likely' ), true ) ) {
+			return false; // Set by hand: left alone.
+		}
+		$k = self::keys();
+		delete_post_meta( $product_id, $k['type_key'] );
+		delete_post_meta( $product_id, $k['countries_key'] );
+		delete_post_meta( $product_id, self::M_SET );
+		wc_delete_product_transients( $product_id );
+		return true;
+	}
+
+	/**
+	 * Linked products with a restriction, by who set it.
+	 *
+	 * @return array{plugin:int[],likely:int[],hand:int[]}
+	 */
+	public static function restricted() {
+		$out = array(
+			'plugin' => array(),
+			'likely' => array(),
+			'hand'   => array(),
+		);
+		$ids = get_posts(
+			array(
+				'post_type'        => 'product',
+				'post_status'      => array( 'publish', 'draft', 'pending', 'private' ),
+				'numberposts'      => -1,
+				'fields'           => 'ids',
+				'meta_key'         => GSUP_META_PRODUCT, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'suppress_filters' => true,
+				'gsup_all'         => true,
+			)
+		);
+		foreach ( $ids as $id ) {
+			$who = self::who_set( $id );
+			if ( '' !== $who ) {
+				$out[ $who ][] = (int) $id;
+			}
+		}
+		return $out;
 	}
 
 	private static function same( array $a, array $b ) {

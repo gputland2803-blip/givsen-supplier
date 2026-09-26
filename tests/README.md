@@ -18,6 +18,7 @@ install chromium`); without it they're skipped locally (never on GitHub). They c
 | `test-eta.php` | Delivery estimate wording |
 | `test-shop.php` | Selling worldwide in the shop: visitor country (header, cookie, cached variant, geolocation), switcher, delivery choice per country (stored and live), local surcharge, cart item and order line, hiding in lists and queries, “Shipping from” counts and filter, checkout re-check, page-cache markup |
 | `browser/guard.test.js` | Page caching: a cached page for the wrong country reloads its own `?gsup_c=` copy once — right copy, first visit, shared links, no loops, store unreachable |
+| `test-worldwide.php` | Selling worldwide ordering and clean-up: warehouse routing rules, delivery-method fallback, loss guard, notes, gift routing and unreachable countries, the Givsen claim check, restriction removal scope (recorded / older match / by hand), merge and 301 redirects |
 | `test-sources.php` | Selling worldwide: matching options across warehouses, union of per-country listings, reach refresh (deliverable / not offered / no quote / no answer / warehouse dropped), stock rules (main warehouse vs any; promotion; option gone), Add to store with all warehouses |
 | `test-tidy.php` | Title, option and description tidy-up, seller-note removal, specifics, description photos |
 | `test-remap.php` | Change supplier's automatic option matching |

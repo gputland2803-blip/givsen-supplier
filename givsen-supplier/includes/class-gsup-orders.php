@@ -36,6 +36,7 @@ class GSUP_Orders {
 	const M_CHECKED    = '_gsup_tracking_checked';  // Last tracking check (also rotates the queue).
 	const GIVE_UP_DAYS = 60;
 	const COMBINE_LOG  = 'gsup_combine_log';        // Last 20 combined requests: what was sent and what came back.
+	const I_WH_USED    = '_gsup_wh_used';           // Warehouse the line was ordered from.
 
 	/** Alerts raised during a tracking check, emailed together at the end. */
 	private static $alerts = array();
@@ -282,7 +283,8 @@ class GSUP_Orders {
 		$item_id = $item->get_id();
 		$qty     = self::net_qty( $order, $item_id, $item );
 		$parent_id = $product->is_type( 'variation' ) ? $product->get_parent_id() : $product->get_id();
-		if ( 'removed' === get_post_meta( $parent_id, GSUP_Sync::M_STATUS, true ) || get_post_meta( $product->get_id(), GSUP_Sync::M_GONE, true ) ) {
+		$sources   = class_exists( 'GSUP_Sources' ) ? GSUP_Sources::get( $product->get_id() ) : array();
+		if ( 'removed' === get_post_meta( $parent_id, GSUP_Sync::M_STATUS, true ) || ( get_post_meta( $product->get_id(), GSUP_Sync::M_GONE, true ) && count( $sources ) < 2 ) ) {
 			return new WP_Error( 'gsup_gone', 'AliExpress no longer sells this.' );
 		}
 		if ( 'parent' === $link['level'] ) {
@@ -300,26 +302,31 @@ class GSUP_Orders {
 		if ( ! $ae['on_sale'] ) {
 			return new WP_Error( 'gsup_off', 'The listing isn’t for sale on AliExpress right now.' );
 		}
-		if ( '' !== $link['sku_id'] ) {
-			$sku = GSUP_AliExpress::find_sku( $ae, $link['sku_id'] );
-		} else {
-			$sku = 1 === count( $ae['skus'] ) ? $ae['skus'][0] : null;
+		// Which warehouse: the customer's choice if it still delivers there and has stock, else one in the
+		// destination country, else the fastest other, else China (a gift ignores the sender's choice).
+		$wanted = GSUP_Givsen::is_gift( $order ) ? '' : strtoupper( (string) $item->get_meta( '_gsup_wh' ) );
+		$route  = self::route( $product->get_id(), $ae, $link, $sources, $country, $qty, $wanted );
+		if ( is_wp_error( $route ) ) {
+			return $route;
+		}
+		$sku     = null;
+		$freight = null;
+		$wh      = '';
+		$error   = null;
+		foreach ( $route as $cand ) {
+			$options = GSUP_AliExpress::freight( $link['product_id'], $cand['sku']['sku_id'], $country, $qty );
+			if ( is_wp_error( $options ) ) {
+				$error = $error ? $error : $options;
+				continue;
+			}
+			$sku     = $cand['sku'];
+			$wh      = $cand['wh'];
+			$freight = GSUP_AliExpress::choose_freight( $options );
+			break;
 		}
 		if ( ! $sku ) {
-			return new WP_Error( 'gsup_no_sku', '' === $link['sku_id'] ? 'No AliExpress option (SKU ID) is stored for this item.' : 'The option isn’t on the AliExpress listing any more (for delivery to ' . $country . ').' );
+			return $error ? $error : new WP_Error( 'gsup_no_route', 'No warehouse can deliver this to ' . $country . '.' );
 		}
-		if ( '' === $sku['sku_attr'] ) {
-			return new WP_Error( 'gsup_no_attr', 'AliExpress didn’t say how to order this option.' );
-		}
-		if ( null !== $sku['stock'] && $sku['stock'] < $qty ) {
-			return new WP_Error( 'gsup_stock', 'Not enough stock on AliExpress (' . (int) $sku['stock'] . ' left, need ' . (int) $qty . ').' );
-		}
-
-		$options = GSUP_AliExpress::freight( $link['product_id'], $sku['sku_id'], $country, $qty );
-		if ( is_wp_error( $options ) ) {
-			return $options;
-		}
-		$freight = GSUP_AliExpress::choose_freight( $options );
 		$cost    = round( (float) $sku['price'] * $qty + (float) $freight['fee'], 2 );
 		$paid    = (float) $item->get_total() - (float) $order->get_total_refunded_for_item( $item_id );
 		$share   = GSUP_Givsen::child_share( $order );
@@ -341,7 +348,95 @@ class GSUP_Orders {
 			'cost'       => $cost,
 			'store_id'   => isset( $ae['store_id'] ) ? (string) $ae['store_id'] : '',
 			'ship_from'  => (string) $sku['ship_from'],
+			'wh'         => $wh,
+			'wanted'     => $wanted,
+			'country'    => $country,
 		);
+	}
+
+	/**
+	 * Warehouses that can fill a line for a destination, in the order to try:
+	 *  0. the customer's choice (`_gsup_wh`), if it still delivers there and has the stock;
+	 *  1. a warehouse in the destination country;
+	 *  2. the fastest other warehouse that delivers there (days from the reach table; unknown → by preference);
+	 *  3. China.
+	 * "Delivers there" = the option is in AliExpress's listing fetched for that country (it only returns those).
+	 *
+	 * @param array $ae      Listing fetched for the destination country.
+	 * @param array $sources The item's sources (GSUP_Sources::get()).
+	 * @return array[]|WP_Error [{wh, sku}] or why none can.
+	 */
+	public static function route( $item_id, array $ae, array $link, array $sources, $country, $qty, $wanted = '' ) {
+		if ( ! $sources && '' === (string) $link['sku_id'] && 1 === count( $ae['skus'] ) ) {
+			$only    = $ae['skus'][0]; // Listing with a single option, not linked to a SKU.
+			$sources = array( GSUP_Sources::wh( $only['ship_from'] ) => array( 'sku' => (string) $only['sku_id'] ) );
+		}
+		if ( ! $sources ) {
+			return new WP_Error( 'gsup_no_sku', 'No AliExpress option (SKU ID) is stored for this item.' );
+		}
+		$ok      = array();
+		$short   = array();
+		$no_attr = false;
+		foreach ( $sources as $wh => $src ) {
+			$sku = GSUP_AliExpress::find_sku( $ae, $src['sku'] );
+			if ( ! $sku ) {
+				continue; // Not offered for delivery to this country (or gone).
+			}
+			if ( '' === (string) $sku['sku_attr'] ) {
+				$no_attr = true;
+				continue;
+			}
+			if ( null !== $sku['stock'] && $sku['stock'] < $qty ) {
+				$short[ $wh ] = (int) $sku['stock'];
+				continue;
+			}
+			$ok[ (string) $wh ] = $sku;
+		}
+		if ( ! $ok ) {
+			if ( $short ) {
+				$wh = (string) key( $short );
+				return new WP_Error( 'gsup_stock', 'Not enough stock on AliExpress (' . (int) $short[ $wh ] . ' left' . ( count( $sources ) > 1 ? ' in ' . GSUP_Sources::label( $wh ) : '' ) . ', need ' . (int) $qty . ').' );
+			}
+			if ( $no_attr ) {
+				return new WP_Error( 'gsup_no_attr', 'AliExpress didn’t say how to order this option.' );
+			}
+			return new WP_Error( 'gsup_no_route', count( $sources ) > 1 ? 'None of this option’s warehouses (' . implode( ', ', array_map( array( 'GSUP_Sources', 'label' ), array_keys( $sources ) ) ) . ') can deliver to ' . $country . ' right now.' : 'The option isn’t on the AliExpress listing any more (for delivery to ' . $country . ').' );
+		}
+		$days = array();
+		foreach ( class_exists( 'GSUP_Sources' ) ? GSUP_Sources::reach( 0, $item_id ) : array() as $r ) {
+			if ( $r['country'] === $country && (int) $r['deliverable'] && (int) $r['days_max'] ) {
+				$days[ $r['warehouse'] ] = array( (int) $r['days_max'], (int) $r['days_min'] );
+			}
+		}
+		$order = array_keys( $ok );
+		usort(
+			$order,
+			function ( $a, $b ) use ( $wanted, $country, $days ) {
+				$score = function ( $w ) use ( $wanted, $country ) {
+					if ( '' !== $wanted && $w === $wanted ) {
+						return 0;
+					}
+					if ( $w === $country ) {
+						return 1;
+					}
+					return 'CN' === $w ? 3 : 2;
+				};
+				$x = $score( $a ) <=> $score( $b );
+				if ( $x ) {
+					return $x;
+				}
+				$x = ( $days[ $a ] ?? array( 999, 999 ) ) <=> ( $days[ $b ] ?? array( 999, 999 ) );
+				return $x ? $x : GSUP_Sources::rank( $a ) <=> GSUP_Sources::rank( $b );
+			}
+		);
+		$out = array();
+		foreach ( $order as $wh ) {
+			$out[] = array(
+				'wh'  => $wh,
+				'sku' => $ok[ $wh ],
+			);
+		}
+		return $out;
 	}
 
 	/**
@@ -426,8 +521,23 @@ class GSUP_Orders {
 			$item->update_meta_data( GSUP_ITEM_AE_ORDER, $ae_order );
 			$item->update_meta_data( self::I_METHOD, $plan['freight']['name'] );
 			$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $plan['cost'], 2 ) );
+			if ( ! empty( $plan['wh'] ) ) {
+				$item->update_meta_data( self::I_WH_USED, $plan['wh'] );
+			}
 			GSUP_Parcels::mark_placed( $item, (int) $plan['freight']['max_days'] );
 			$item->save();
+			$chose = strtoupper( (string) $item->get_meta( '_gsup_wh' ) );
+			if ( ! empty( $plan['wh'] ) && '' !== $chose && $chose !== $plan['wh'] ) {
+				$order->add_order_note(
+					sprintf(
+						'“%1$s” was ordered from %2$s, not %3$s as chosen at checkout: %4$s',
+						$item->get_name(),
+						GSUP_Sources::label( $plan['wh'] ),
+						GSUP_Sources::label( $chose ),
+						'' === $plan['wanted'] ? 'this is a gift, so the warehouse was chosen for the recipient’s country (' . $plan['country'] . ').' : GSUP_Sources::label( $chose ) . ' can’t deliver it to ' . $plan['country'] . ' or doesn’t have the stock right now.'
+					)
+				);
+			}
 			$order->add_order_note(
 				sprintf(
 					'Givsen Supplier placed “%1$s” × %2$d on AliExpress: order %3$s, %4$s delivery, cost %5$s%6$s%7$s.',

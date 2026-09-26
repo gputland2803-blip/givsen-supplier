@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.15.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.16.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -24,6 +24,9 @@ The supplier link lives on the WooCommerce product, by ID. Titles, descriptions,
 | Variation, or simple product | `_gsup_sources` | Every warehouse that has the option: {warehouse: {sku, option, cost, stock, seen_at}}, main warehouse first; unstated ships-from = `CN`. Absent = main warehouse only |
 | Product | `_gsup_reach_at` | When its sources and reach were last refreshed |
 | Order line item | `_gsup_wh` | Warehouse the customer chose (or the checkout re-check switched to); visible meta "Ships from" |
+| Order line item | `_gsup_wh_used` | Warehouse the line was ordered from |
+| Product | `_gsup_cbr_set` | Restriction this plugin set: {type_key, countries_key, type, countries, at} |
+| Product | `_gsup_merged_into` / `_gsup_merged_ae` / `_gsup_merged_from` | Merge warehouse versions: kept product ID / old AliExpress ID on the drafted one; merged products on the kept one |
 | Order line item | `_gsup_ae_order_no` | AliExpress order number |
 | Order line item | `_gsup_tracking_no` | Tracking number(s), comma-separated |
 | Order line item | `_gsup_carrier` | Carrier reported by AliExpress |
@@ -99,6 +102,7 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 - One AliExpress order per line (`out_order_id` = order number-item ID) unless the same-seller trial is on (see below). Lines with an AliExpress order number are skipped; lines not linked to AliExpress are ignored.
 - Per line, refused with a reason when: refunded; product removed / option gone at last sync; variable parent only; option not on the listing for the delivery country; no `sku_attr`; stock below quantity; no delivery method; loss guard (`gsup_auto_loss_guard`, default on) — AliExpress price × qty + delivery fee > line total after refunds.
 - Address: shipping, else billing; name, street, city, postcode, country and phone required. Company prefixed to the street. State written out. Phone split into `phone_country` (+61) and digits without the trunk 0 (not for US/CA).
+- Warehouse (`GSUP_Orders::route()`): candidates = the item's sources whose SKU is in the listing fetched for the order's shipping country (only deliverable options come back), with `sku_attr` and stock ≥ quantity (unknown = ok). Order: 0 the line's `_gsup_wh` (ignored for gifts, `GSUP_Givsen::is_gift()`), 1 warehouse = destination country, 2 others by reach `days_max`/`days_min` for that country (unknown last) then preference, 3 China. Each tried until a freight quote succeeds. `_gsup_option_gone` blocks only items with fewer than two sources. Saved `_gsup_wh_used`; order note when it differs from `_gsup_wh`. Errors: `gsup_stock` (not enough anywhere), `gsup_no_route` (none reaches), `gsup_no_attr`.
 - Delivery: freight quote for the actual quantity and country, chosen by the preference.
 - Payment: `gsup_auto_pay` (default on) asks AliExpress to pay with the account's saved method; off → orders wait for payment on AliExpress.
 - Fully refunded lines are skipped silently.
@@ -121,6 +125,7 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 - Orders: `_gsup_unit_cost` saved at checkout. Line cost = `_gsup_ae_cost`, else unit cost × net qty, else today's cost. Order revenue = (total − refunds) − (tax − refunded tax). Payment fees on the original total. Order panel shows per-line and order profit; orders list has a Profit column (HPOS and classic).
 
 ## Country restrictions (CBR)
+- Off while `gsup_worldwide_shop` = yes (`GSUP_CBR::worldwide()`), whatever `gsup_cbr_enabled` says. Each restriction set is recorded in `_gsup_cbr_set`; `who_set()` = plugin (record matches) / likely (no record, equals the map for its single warehouse) / hand; `remove()` only for plugin/likely.
 - Off until `gsup_cbr_enabled`. Map warehouse → countries (`gsup_cbr_map`, default AU→AU, US→US).
 - Keys configurable: type key = type value (default `_fz_country_restriction_type` = `specific`), countries key (default `_restricted_countries`) stored as a list or comma text. "Look at a product" lists a product's country-related meta to confirm them.
 - Applied on Add to store and by "Apply to linked products". Products with several warehouses or none are left alone. An existing restriction (type not empty/`all`) is kept unless "replace" is ticked.
@@ -155,10 +160,36 @@ Per-option delivery quotes (one quote per product and warehouse is used).
 - Filter: `counts( country, scope )` (published, deliverable, in stock; scope = current product category/tag with children); `filter_html()` shortcode `gsup_shipping_from`, block `givsen-supplier/shipping-from`, `woocommerce_before_shop_loop` 25 when `gsup_filter_auto` and ≥ 2 warehouses.
 - Not selling to the country: `wp_body_open` bar.
 
+## Clean-up (`tab=cleanup`, `GSUP_Cleanup`)
+- Remove restrictions: `GSUP_CBR::restricted()` preview (plugin + likely ticked; hand counted, not listed) → `admin_post_gsup_cbr_remove` (nonce, `manage_woocommerce` + `edit_products`, per-product `edit_product`) → `GSUP_CBR::remove()`.
+- Merge: `groups()` = products (publish/draft/pending/private) sharing `_gsup_ae_product_id`, kept = most `total_sales`, then lowest ID. `admin_post_gsup_merge` (same checks; re-verifies the shared listing) → `merge( keep, ids )`: per item of a merged product, `option_key()` of `_gsup_ae_option` (Ships From removed) → matching kept item (a simple product matches a single-item kept product); its sources added where the kept item lacks that warehouse; unmatched reported. Merged product: `_gsup_merged_ae` = old ID, `_gsup_ae_product_id` removed, `_gsup_merged_into`, reach forgotten, draft. Redirect map `gsup_redirects` (lower-cased path → kept ID); `template_redirect` on 404 → 301 to the kept product if published. Kept product: `_gsup_merged_from`, refresh queued.
+
 ## Same-seller trial (`gsup_combine_seller`, default no)
 `GSUP_Orders::place()` checks every line first (`prepare_line()` → plan {item, product_id, qty, sku_attr, freight, cost, store_id, ship_from}), then `group()`: key `store_id|ship_from` when on and store_id known, else one per line. `submit()` sends a group in one `place_order()` (`out_order_id` = number-firstItemID-xN). Success → `match_orders()`: `get_orders()` on the returned numbers; a line whose product ID is in exactly one order gets that number, else all numbers. Refused (not a network/unknown error) → logged, then each line submitted alone (`number-itemID`). Unknown → every line flagged `gsup_unknown`, `_gsup_placing` kept, not retried. Each group of 2+ is logged in `gsup_combine_log` (last 20: at, order, store, lines {name, qty, product, method, fee, cost, orders}, result one/split/error/unknown, orders {number: amount, currency, products}) and shown under Settings → Ordering → Combined orders so far; order note added. Item cost stays its own quote; when tracking later reads an order's amount, `cost_shares()` splits a number shared by several lines by their current costs. Listing `store_id` from `ae_store_info`; order `products`/`store_id` from `child_order_list` / `store_info`.
 
 ## Givsen gift plugin
+Gift routing: see Automatic ordering → Warehouse (sender's choice ignored; nothing reaches → problem, note, email).
+
+**Hook needed in Givsen** (1.4.2 has none): in `givsen_take_address()` (givsen.php), straight after the `givsen_merchant_serves()` block and before the address is saved, add:
+```php
+if ( ! $missing ) {
+	/**
+	 * Whether this gift can be delivered to the address entered, beyond the store's shipping zones.
+	 *
+	 * @param true|WP_Error $ok         True to accept; a WP_Error refuses it, and its message is shown to whoever entered the address.
+	 * @param WC_Order      $order      The gift order.
+	 * @param array         $claimed_to {country, state, postcode, city}
+	 * @param string        $who        'recipient' or 'sender'.
+	 */
+	$ok = apply_filters( 'givsen_claim_address_deliverable', true, $order, $claimed_to, $who );
+	if ( is_wp_error( $ok ) ) {
+		$missing = true;
+		$notice  = '<p class="givsen-error">' . esc_html( $ok->get_error_message() ) . '</p>';
+	}
+}
+```
+Nice to have: `apply_filters( 'givsen_claim_countries_for_order', givsen_claim_countries(), $order )` where the claim form builds its country list, so unreachable countries aren't offered at all. Givsen Supplier answers `givsen_claim_address_deliverable` already (`GSUP_Givsen::claim_deliverable()`: any AliExpress-linked line with no warehouse delivering in stock to that country — `GSUP_Shop::options()` returning an empty list — refuses; unknown is left to Givsen; an earlier refusal is kept).
+
 `GSUP_Givsen` (active when `givsen_is_gift_order()` exists). `_givsen_mode` corporate → never queued/placed, panel explains. corporate_child → loss check and profit from `child_share()` = parent line total ÷ quantity + parent shipping ÷ quantity, fees ÷ quantity (not cached on the child). Phone: shipping → billing → parent billing (child) → `gsup_fallback_phone`. `hide_from_buyer()` = `givsen_is_gift_order()` and `_givsen_address_by` ≠ sender → no tracking in customer emails/My Account, no AST. Delivered email: personal gift → buyer ("to {first name}", via `givsen_greeting_first_name()`); corporate_child → billing email (the recipient's) or nobody; corporate parent → nobody. Report adds fee-only orders (`_givsen_postage_for`) as revenue.
 
 ## Backup supplier
@@ -283,3 +314,7 @@ Run after any change, on a staging copy with MySQL.
 66. Checkout with an Australian-warehouse item, change the shipping country to New Zealand (not in the list, AU can't deliver) → notice that it will ship from China instead; to a country nothing reaches → error for that item, order can't be placed. Same with the block checkout.
 67. With LiteSpeed Cache on: visit as AU, switch to GB, go back to the shop → UK version (no reload). With Cloudflare "Cache Everything": same steps → the page reloads once as ?gsup_c=GB; view source shows noindex on that copy. Cart and checkout never reload.
 68. Visitor from a country you don't sell to (untick "Also sell to other countries", switch to France) → bar "We don't deliver to France yet", products shown but not buyable.
+69. Order (paid) for an option whose customer choice was Australia, shipping to New Zealand where Australia's option isn't offered → placed from the next warehouse by the rules; line shows the AliExpress order; order note "ordered from China, not Australia as chosen at checkout…". Same order to Australia → placed from Australia, no extra note.
+70. Givsen gift bought with "Australia" chosen, claimed to a UK address → placed from the best warehouse for the UK (note if different from the sender's pick). Claimed to a country nothing reaches → not placed; problem on the line, order note and email.
+71. Clean-up → Remove restrictions: products Givsen Supplier restricted are listed (older ones marked "matches what it sets"); a product you restricted by hand isn't listed. Confirm → their "Shown to:" label disappears; the hand-set one keeps its restriction.
+72. Clean-up → Merge: an AU and a US version of one listing appear as one row, the one with more sales as "Keep". Tick → confirm → kept product's Supplier tab shows both warehouses; the other is a draft with no AliExpress link; its old address redirects (301) to the kept product; options only on the other version are named in the message.

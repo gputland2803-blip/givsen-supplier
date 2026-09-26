@@ -27,12 +27,77 @@ defined( 'ABSPATH' ) || exit;
 
 class GSUP_Givsen {
 
+	/**
+	 * Ready for Givsen's claim-address check. Givsen 1.4.2 only checks your shipping zones when a recipient (or the
+	 * sender) enters an address, with no filter for other plugins; this answers the filter
+	 * `givsen_claim_address_deliverable` proposed for Givsen (see SPEC.md → Givsen gift plugin) as soon as it exists.
+	 */
+	public static function init() {
+		add_filter( 'givsen_claim_address_deliverable', array( __CLASS__, 'claim_deliverable' ), 10, 4 );
+	}
+
+	/**
+	 * Refuse a claim address in a country no warehouse can deliver the gift's items to (in stock).
+	 *
+	 * @param true|WP_Error $ok    Givsen's own verdict so far.
+	 * @param WC_Order      $order The gift order.
+	 * @param array         $dest  {country, state, postcode, city}
+	 * @param string        $who   'recipient' or 'sender'.
+	 * @return true|WP_Error
+	 */
+	public static function claim_deliverable( $ok, $order, $dest, $who = 'recipient' ) {
+		if ( true !== $ok || ! $order instanceof WC_Order ) {
+			return $ok;
+		}
+		$country = strtoupper( (string) ( $dest['country'] ?? '' ) );
+		$names   = self::unreachable_items( $order, $country );
+		if ( ! $names ) {
+			return $ok;
+		}
+		$where = class_exists( 'GSUP_Visitor' ) ? GSUP_Visitor::name( $country ) : $country;
+		return new WP_Error(
+			'gsup_unreachable',
+			sprintf(
+				'Sorry — %1$s can’t be delivered to %2$s. If there’s an address in another country you can use, enter it instead%3$s.',
+				implode( ', ', $names ),
+				$where,
+				'sender' === $who ? '' : ' — or let the person who sent it know, so they can sort it out with the store'
+			)
+		);
+	}
+
+	/**
+	 * Items of an order no warehouse can deliver to a country in stock (by the reach table, or checked live).
+	 *
+	 * @return string[] Item names.
+	 */
+	public static function unreachable_items( WC_Order $order, $country ) {
+		if ( '' === $country || ! class_exists( 'GSUP_Shop' ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $order->get_items() as $item ) {
+			$pid  = (int) $item->get_product_id();
+			$vid  = (int) $item->get_variation_id();
+			$opts = GSUP_Shop::options( $pid, $vid ? $vid : $pid, $country );
+			if ( is_array( $opts ) && ! $opts ) {
+				$out[] = $item->get_name();
+			}
+		}
+		return $out;
+	}
+
 	public static function active() {
 		return function_exists( 'givsen_is_gift_order' );
 	}
 
 	public static function mode( WC_Order $order ) {
 		return (string) $order->get_meta( '_givsen_mode' );
+	}
+
+	/** A gift (personal, or a Business gifting recipient's order): it ships to whoever claimed it. */
+	public static function is_gift( WC_Order $order ) {
+		return in_array( self::mode( $order ), array( 'share', 'phone', 'address', 'username', 'corporate_child' ), true );
 	}
 
 	/** Business gifting parent: paid, but ships nothing itself. */

@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.15.0
+Stable tag: 0.16.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -23,7 +23,8 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 * Automatic ordering on AliExpress when an order reaches Processing, and tracking numbers back into the order.
 * Profit and margin on every product and order, with low-margin flags.
 * AliExpress delivery fees in your costs and pricing rule.
-* Country Based Restrictions set from where each product ships.
+* Country Based Restrictions set from where each product ships (until you sell worldwide), and a tool to remove the ones it set.
+* Orders placed from the warehouse the customer chose, or the best one that reaches the address; merge separate warehouse versions of a product into one.
 * Change supplier when a seller removes a listing, with options matched automatically.
 * Clean, WooCommerce-style titles, option names, descriptions and specifications — for new products and in bulk for existing ones.
 * Backup suppliers that take over automatically.
@@ -34,6 +35,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.16.0 =
+* Selling worldwide, phase 3: orders placed from the customer's warehouse or the best other one that reaches the address (gifts: the recipient's country), warehouse used recorded; country restrictions no longer set when selling worldwide, with a tool to remove the ones this plugin set; merge warehouse versions of a product with 301 redirects. Ready for a Givsen claim-address hook (proposed).
 
 = 0.15.0 =
 * Selling worldwide, phase 2: what shoppers see — visitor country and “Deliver to” switcher, undeliverable products hidden (direct links show “Not available in {country}” with similar products), delivery choice per warehouse, optional local-warehouse surcharge, “Shipping from” filter, checkout re-check, page caching by country. Off until you switch it on.
