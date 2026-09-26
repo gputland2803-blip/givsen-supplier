@@ -1284,7 +1284,9 @@ class GSUP_Admin_Page {
 			wp_safe_redirect( $back );
 			exit;
 		}
-		$id = GSUP_Creator::create( $product, $ship, array_filter( $skus ), $title, $cats, self::posted_create_options() );
+		$opts              = self::posted_create_options();
+		$opts['page_text'] = GSUP_Import::page_text_for( $product['product_id'] );
+		$id                = GSUP_Creator::create( $product, $ship, array_filter( $skus ), $title, $cats, $opts );
 		if ( is_wp_error( $id ) ) {
 			gsup_flash( esc_html( $id->get_error_message() ), 'error' );
 			wp_safe_redirect( $back );

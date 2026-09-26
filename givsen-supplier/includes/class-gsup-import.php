@@ -29,6 +29,17 @@ class GSUP_Import {
 			'price'         => mb_substr( sanitize_text_field( isset( $data['price'] ) ? (string) $data['price'] : '' ), 0, 32 ),
 			'currency'      => substr( preg_replace( '/[^A-Z]/', '', strtoupper( isset( $data['currency'] ) ? (string) $data['currency'] : '' ) ), 0, 8 ),
 			'category_ids'  => implode( ',', gsup_clean_category_ids( isset( $data['category_ids'] ) ? $data['category_ids'] : array() ) ),
+			// The product's words from the AliExpress page (overview, description, specifications) — sent by the extension.
+			'page_text'     => mb_substr( sanitize_textarea_field( isset( $data['page_text'] ) ? (string) $data['page_text'] : '' ), 0, 8000 ),
+		);
+	}
+
+	/** The latest words captured from this product's AliExpress page (any option, any row). */
+	public static function page_text_for( $ae_product_id ) {
+		global $wpdb;
+		$table = GSUP_Install::table();
+		return (string) $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$wpdb->prepare( "SELECT page_text FROM {$table} WHERE ae_product_id = %s AND page_text IS NOT NULL AND page_text <> '' ORDER BY updated_at DESC LIMIT 1", (string) $ae_product_id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		);
 	}
 
@@ -53,7 +64,7 @@ class GSUP_Import {
 
 		if ( $existing ) {
 			$update = array( 'updated_at' => $now );
-			foreach ( array( 'ship_from', 'option_label', 'title', 'image_url', 'price', 'currency', 'category_ids' ) as $field ) {
+			foreach ( array( 'ship_from', 'option_label', 'title', 'image_url', 'price', 'currency', 'category_ids', 'page_text' ) as $field ) {
 				if ( '' !== $row[ $field ] ) {
 					$update[ $field ] = $row[ $field ];
 				}

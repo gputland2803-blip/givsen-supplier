@@ -19,6 +19,7 @@ Needs the **Givsen Supplier** WordPress plugin on the store.
 ## Use it
 1. Open an AliExpress product page and pick the options you want to sell (including **Ships From**).
 2. Click **Add to Givsen** (bottom right). Check the option, ships-from and SKU ID, and pick the store category (or "Choose later").
+   The card also says how much product text it found on the page (AliExpress's overview, description and specifications) — that becomes the starting description in your store. Descriptions load as you scroll, so scroll down to it first if you want it included.
 3. Click **Send to import list**. Repeat for each option you want (e.g. Red/Australia, Blue/Australia).
 4. In WordPress, link each import-list row to the matching product or variation.
 

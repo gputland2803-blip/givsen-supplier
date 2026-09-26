@@ -275,6 +275,55 @@ class GSUP_Tidy {
 	}
 
 	/**
+	 * Words captured from the AliExpress page by the extension ("Overview:", "Description:", "Specifications:"
+	 * sections of plain lines) → simple HTML: paragraphs, with the overview and specifications as bullet lists.
+	 */
+	public static function page_text_html( $text ) {
+		$text = trim( str_replace( "\r", '', (string) $text ) );
+		if ( '' === $text ) {
+			return '';
+		}
+		$out = array();
+		foreach ( preg_split( "/\n{2,}/", $text ) as $section ) {
+			$lines = array_values( array_filter( array_map( 'trim', explode( "\n", $section ) ) ) );
+			if ( ! $lines ) {
+				continue;
+			}
+			$label = '';
+			if ( preg_match( '/^(Overview|Description|Specifications):$/', $lines[0], $m ) ) {
+				$label = $m[1];
+				array_shift( $lines );
+			}
+			$lines = array_values(
+				array_filter(
+					$lines,
+					function ( $l ) {
+						return mb_strlen( $l ) > 300 || ! self::is_boilerplate( $l );
+					}
+				)
+			);
+			if ( ! $lines ) {
+				continue;
+			}
+			if ( 'Description' === $label || ( '' === $label && count( $lines ) < 3 ) ) {
+				foreach ( $lines as $l ) {
+					$out[] = '<p>' . esc_html( $l ) . '</p>';
+				}
+			} else {
+				$li = '';
+				foreach ( $lines as $l ) {
+					// "Heading: text" (overview bullets, specifications) → bold heading.
+					$li .= preg_match( '/^([^:]{2,60}):\s+(.+)$/u', $l, $m )
+						? '<li><strong>' . esc_html( $m[1] ) . ':</strong> ' . esc_html( $m[2] ) . '</li>'
+						: '<li>' . esc_html( $l ) . '</li>';
+				}
+				$out[] = '<ul>' . $li . '</ul>';
+			}
+		}
+		return implode( "\n", $out );
+	}
+
+	/**
 	 * A plain, factual starting description when AliExpress gives no usable wording (image-only listings):
 	 * the product name, its specifics and the options on offer — ready to rewrite, never invented.
 	 *

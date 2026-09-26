@@ -47,6 +47,7 @@ class GSUP_Install {
   status varchar(20) NOT NULL DEFAULT 'new',
   wc_product_id bigint(20) unsigned NOT NULL DEFAULT 0,
   category_ids varchar(255) NOT NULL DEFAULT '',
+  page_text text NULL,
   api_note varchar(255) NOT NULL DEFAULT '',
   api_checked_at datetime NULL DEFAULT NULL,
   created_at datetime NOT NULL,

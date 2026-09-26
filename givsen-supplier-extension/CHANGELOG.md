@@ -1,5 +1,8 @@
 # Givsen Supplier (Chrome extension) — Changelog
 
+## 0.4.2 — 2026-09-26
+- Sends the product's words from the page — AliExpress's "AI overview of item", any written description, and the specifications — so image-only listings still get a starting description in your store (plugin 0.10.2+). The card shows how many words it found.
+
 ## 0.4.1 — 2026-09-26
 - Review import removed (and with it the permission to read feedback.aliexpress.com).
 - Stronger request signing: each request also signs its method and endpoint, and the store accepts it only once. Needs plugin 0.8.2 or later — update both together.

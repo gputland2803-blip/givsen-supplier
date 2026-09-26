@@ -137,6 +137,7 @@ class GSUP_Creator {
 				'names'            => array(),
 				'values'           => array(),
 				'description'      => 'text',
+				'page_text'        => '',
 				'photos'           => self::MAX_GALLERY,
 				'option_photos'    => true,
 				'desc_photos'      => true,
@@ -197,10 +198,17 @@ class GSUP_Creator {
 				? GSUP_Tidy::description_text( $product['description'] )
 				: GSUP_Tidy::description( $product['description'], $title ); // Images moved to your site below.
 			if ( '' === trim( wp_strip_all_tags( $desc ) ) ) {
-				// AliExpress's description had no words (usually a stack of images): try the mobile description,
-				// then start one from the facts, so there's always something to rewrite.
-				$words = GSUP_Tidy::mobile_text( isset( $product['mobile_description'] ) ? $product['mobile_description'] : '' );
+				// AliExpress's description had no words (usually a stack of images): use the words the extension
+				// captured from the page, then the mobile description, then start one from the facts.
+				$words = GSUP_Tidy::page_text_html( isset( $opts['page_text'] ) ? $opts['page_text'] : '' );
 				if ( '' !== trim( wp_strip_all_tags( $words ) ) ) {
+					self::$description_note = 'AliExpress’s description was only images, so the wording comes from the product page (its overview and specifications) captured by the Chrome extension.';
+				} else {
+					$words = GSUP_Tidy::mobile_text( isset( $product['mobile_description'] ) ? $product['mobile_description'] : '' );
+				}
+				if ( '' !== self::$description_note ) {
+					// Already have words from the page.
+				} elseif ( '' !== trim( wp_strip_all_tags( $words ) ) ) {
 					self::$description_note = 'AliExpress’s description was only images, so the wording comes from its mobile description.';
 				} else {
 					$opts_text = array();

@@ -56,6 +56,13 @@ ok( '' === GSUP_Tidy::mobile_text( '' ), 'no mobile description: empty' );
 $st = GSUP_Tidy::starter_description( 'Heart Pendant Necklace', array( 'Material' => 'Stainless Steel', 'Chain Length' => '45cm' ), array( 'Metal Color' => array( 'White', 'Gold' ) ) );
 ok( 0 === strpos( $st, '<p>Heart Pendant Necklace.</p>' ) && false !== strpos( $st, '<li><strong>Metal Color:</strong> White, Gold</li>' ) && false !== strpos( $st, '<li><strong>Chain Length:</strong> 45cm</li>' ), 'starter description from facts' );
 
+// Words the extension captured from the page (AliExpress's "AI overview of item", specifications).
+$page = "Overview:\nHandmade multi-layer chain choker design This handmade multi-layer chain choker features a delicate layered chain structure.\nSimulated pearl embellishment Crafted with simulated pearls.\nLightweight and comfortable fit Weighing only 0.006 kg.\n\nSpecifications:\nMaterial: Imitation Pearl\nNecklace Type: Chokers Necklaces\nPlease leave 5 stars feedback";
+$ph = GSUP_Tidy::page_text_html( $page );
+ok( false !== strpos( $ph, '<ul><li>Handmade multi-layer chain choker design' ) && false !== strpos( $ph, '<li><strong>Material:</strong> Imitation Pearl</li>' ), 'page text: overview and specifications as bullet lists, headings bold' );
+ok( false === stripos( $ph, 'feedback' ) && false === strpos( $ph, 'Overview:' ), 'page text: section labels and seller notes removed' );
+ok( '' === GSUP_Tidy::page_text_html( '' ), 'no page text: empty' );
+
 $imgs = GSUP_Creator::description_images( '<p><img src="//ae01.alicdn.com/kf/A1.jpg"><img src="https://ae01.alicdn.com/kf/banner.gif"><img src="https://evil.example/x.jpg"><img src="//ae01.alicdn.com/kf/A1.jpg"><img src=https://ae-pic-a1.aliexpress-media.com/kf/B2.png></p>' );
 ok( $imgs === array( 'https://ae01.alicdn.com/kf/A1.jpg', 'https://ae-pic-a1.aliexpress-media.com/kf/B2.png' ), 'description photos: AliExpress hosts only, no GIFs, no repeats' );
 $k = new ReflectionMethod( 'GSUP_Creator', 'image_key' );

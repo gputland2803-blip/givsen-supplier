@@ -1,5 +1,9 @@
 # Givsen Supplier — Changelog
 
+## 0.10.2 — 2026-09-26
+- **Descriptions from the product page.** AliExpress's "AI overview of item" and the specifications table are only on the web page — its API doesn't include them. With Chrome extension 0.4.2, they're captured (with any written description) when you click Add to Givsen, kept with the import-list item, and used by Add to store when the listing's own description is only images: overview and specifications as bullet lists with bold headings, seller notes removed. Order: the listing's words → the page's words → AliExpress's mobile description → a starter from the facts.
+- Import list table gains `page_text` (upgrades itself).
+
 ## 0.10.1 — 2026-09-26
 - **Fix: empty descriptions on image-only listings.** Many AliExpress descriptions are just a stack of images, so "wording only" left nothing. Now, when the description has no words, Add to store uses AliExpress's mobile description (which often has the text), and failing that writes a plain starter description from the title, your chosen options and the item specifics — ready to rewrite or run through Rewrite with AI. A message after creating says which was used. The images still go into the gallery.
 

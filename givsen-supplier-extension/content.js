@@ -132,6 +132,65 @@
     return p ? p.textContent.replace(/\s+/g, ' ').trim().slice(0, 32) : '';
   }
 
+  /**
+   * Words about the product that are on the page but not in AliExpress's API: its "AI overview of item",
+   * any written description, and the specifications. Used as a starting description in your store.
+   * (Descriptions load as you scroll — scroll down to the description first to capture it too.)
+   */
+  function pageText() {
+    var parts = [];
+    var seen = {};
+    function add(label, node) {
+      if (!node) return;
+      var t = (node.innerText || '').replace(/\r/g, '');
+      t = t.split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(function (l) {
+        return l && !/^(AI overview of item|Disclaimer\s*:|View (More|less)$|Description$|Specifications?$|Report Item)/i.test(l);
+      }).join('\n');
+      if (t.length < 20 || seen[t]) return;
+      seen[t] = true;
+      parts.push(label + ':\n' + t);
+    }
+    // "AI overview of item": find the heading, then the block around it.
+    var labels = document.querySelectorAll('div, span, h2, h3, h4');
+    for (var i = 0; i < labels.length; i++) {
+      var el = labels[i];
+      if (el.childElementCount <= 2 && /^\s*AI overview/i.test(el.textContent || '') && (el.textContent || '').length < 40) {
+        var box = el.parentElement;
+        for (var up = 0; box && up < 4 && (box.innerText || '').length < 120; up++) box = box.parentElement;
+        // Each bullet starts with a bold heading: keep it apart ("Heading: text").
+        var items = box ? box.querySelectorAll('li') : [];
+        if (items.length) {
+          var lines = Array.prototype.map.call(items, function (li) {
+            var t = (li.innerText || '').replace(/\s+/g, ' ').trim();
+            var b = li.querySelector('b, strong');
+            var h = b ? (b.innerText || '').replace(/\s+/g, ' ').trim() : '';
+            return h && t.indexOf(h) === 0 && t.length > h.length ? h.replace(/[:.]$/, '') + ': ' + t.slice(h.length).trim() : t;
+          });
+          add('Overview', { innerText: lines.join('\n') });
+        } else {
+          add('Overview', box);
+        }
+        break;
+      }
+    }
+    add('Description', document.querySelector('#product-description, [class*="description--product-description"], .detail-desc-decorate-richtext, .detailmodule_text'));
+    // Specifications: each row is a name and a value in separate boxes — join them as "Name: value".
+    var specList = document.querySelector('[class*="specification--list"], #nav-specification ul, [class*="specification--wrap"]');
+    if (specList) {
+      var rows = [];
+      Array.prototype.forEach.call(specList.querySelectorAll('li, [class*="specification--prop"]'), function (li) {
+        var cells = Array.prototype.map.call(li.children, function (c) { return (c.innerText || '').replace(/\s+/g, ' ').trim(); }).filter(Boolean);
+        var line = cells.length >= 2 ? cells[0].replace(/:$/, '') + ': ' + cells.slice(1).join(' ') : (li.innerText || '').replace(/\s+/g, ' ').trim();
+        if (line && rows.indexOf(line) < 0) rows.push(line);
+      });
+      if (rows.length) {
+        var fake = { innerText: rows.join('\n') };
+        add('Specifications', fake);
+      }
+    }
+    return parts.join('\n\n').slice(0, 8000);
+  }
+
   function closeCard() {
     if (card) {
       card.remove();
@@ -204,6 +263,11 @@
     card.appendChild(field('Ships from', 'ship_from', found.shipFrom));
     card.appendChild(field('SKU ID', 'sku_id', found.skuId));
     card.appendChild(categoryField());
+    var captured = pageText();
+    var words = captured ? captured.split(/\s+/).length : 0;
+    card.appendChild(el('div', { class: 'hint' + (words ? ' ok' : '') },
+      words ? 'Product text from this page: ' + words + ' words (used as the starting description).'
+            : 'No product text found on the page yet — scroll down to the description, then click Add to Givsen again if you want it.'));
 
     var hint = el('div', { class: 'hint' });
     if (found.skuId) {
@@ -255,6 +319,7 @@
       image: pageImage(),
       price: pagePrice(),
       url: location.href.split('#')[0],
+      page_text: pageText(),
       category_ids: (function () {
         var c = card.querySelector('select[name="category"]');
         return c && c.value ? [parseInt(c.value, 10)] : [];
