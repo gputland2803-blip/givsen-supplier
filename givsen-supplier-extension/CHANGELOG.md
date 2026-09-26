@@ -1,5 +1,9 @@
 # Givsen Supplier (Chrome extension) — Changelog
 
+## 0.4.0 — 2026-09-26
+- **Import reviews** on the Add to Givsen card: reads the listing's reviews (stars, text in English, photos, buyer country) with filters — minimum stars, with text, with photos only, how many — and adds them to the linked product(s) in your store (needs plugin 0.8.0). Duplicates are skipped.
+- Needs permission to read feedback.aliexpress.com (AliExpress's review feed); Chrome asks when you update.
+
 ## 0.3.0 — 2026-09-26
 - "Category in your store" dropdown on the Add to Givsen card, filled with your store's categories (needs plugin 0.4.0). Remembers the last one you picked. The choice is carried to the Add to store screen.
 

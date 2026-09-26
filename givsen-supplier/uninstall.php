@@ -26,6 +26,7 @@ foreach (
 		'gsup_auto_order', 'gsup_auto_pay', 'gsup_auto_loss_guard', 'gsup_complete_on_tracking', 'gsup_ship_pref',
 		'gsup_late_notrack_days', 'gsup_late_grace_days', 'gsup_delivered_email', 'gsup_complete_when',
 		'gsup_stock_min', 'gsup_stock_cap',
+		'gsup_reviews_publish',
 		'gsup_min_margin', 'gsup_backup_auto', 'gsup_backup_rise', 'gsup_fee_percent', 'gsup_fee_fixed',
 		'gsup_cbr_enabled', 'gsup_cbr_map', 'gsup_cbr_type_key', 'gsup_cbr_countries_key', 'gsup_cbr_type_value', 'gsup_cbr_format',
 	) as $gsup_opt

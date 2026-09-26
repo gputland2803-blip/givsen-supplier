@@ -15,7 +15,7 @@ class GSUP_Admin_Page {
 		add_filter( 'woocommerce_screen_ids', array( __CLASS__, 'screen_ids' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ), 20 );
 		add_action( 'admin_notices', array( __CLASS__, 'product_screen_notices' ) );
-		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply' ) as $action ) {
+		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_reviews' ) as $action ) {
 			add_action( 'admin_post_gsup_' . $action, array( __CLASS__, 'handle_' . $action ) );
 		}
 	}
@@ -279,7 +279,7 @@ class GSUP_Admin_Page {
 			'pricing'    => array( 'Pricing & profit', 'Pricing & profit', 'How new products are priced, and how margin is worked out.' ),
 			'sync'       => array( 'Daily sync', 'Daily sync', 'Keep stock, costs and delivery fees in step with AliExpress.' ),
 			'countries'  => array( 'Country restrictions', 'Country restrictions', 'Show each product only in the countries its warehouse serves (CBR).' ),
-			'extension'  => array( 'Chrome extension', 'Chrome extension', 'Connect the Add to Givsen button to this store.' ),
+			'extension'  => array( 'Chrome extension', 'Chrome extension & reviews', 'Connect the Add to Givsen button to this store, and import AliExpress reviews.' ),
 		);
 	}
 
@@ -493,6 +493,11 @@ class GSUP_Admin_Page {
 		echo '<tr><th scope="row">Site address</th><td><code>' . esc_html( $site ) . '</code> ' . gsup_copy_button( $site ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo '<tr><th scope="row">Connection key</th><td><code class="gsup-key">' . esc_html( $key ) . '</code> ' . gsup_copy_button( $key ) . '<p class="description">Anyone with this key can add items to your import list (nothing else). Keep it private.</p></td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo '</tbody></table>';
+		echo '<h3>Reviews</h3><p>On an AliExpress product page, open the <strong>Add to Givsen</strong> card and click <strong>Import reviews</strong> to copy its reviews (with stars and photos) to the linked product in your store.</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form"><input type="hidden" name="action" value="gsup_save_reviews">';
+		wp_nonce_field( 'gsup_save_reviews' );
+		echo '<p><label><input type="checkbox" name="publish" value="yes"' . checked( GSUP_Reviews::publish_now(), true, false ) . '> Publish imported reviews straight away</label><br><span class="description">Off: they wait in <a href="' . esc_url( admin_url( 'edit.php?post_type=product&page=product-reviews' ) ) . '">Products → Reviews</a> for you to approve.</span></p>';
+		echo '<p><button type="submit" class="button button-primary">Save</button></p></form>';
 		echo '<h3>Replace the key</h3><p class="gsup-meta">Only if you think someone else has it. The extension stops working until you paste the new key into it.</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="gsup_regen_key">';
@@ -1370,6 +1375,14 @@ class GSUP_Admin_Page {
 		}
 		gsup_flash( $parts ? 'Country restrictions: ' . esc_html( implode( ' · ', $parts ) ) . '.' : 'No linked products found.', empty( $results['set'] ) ? 'info' : 'success' );
 		wp_safe_redirect( gsup_settings_url( 'countries' ) );
+		exit;
+	}
+
+	public static function handle_save_reviews() {
+		self::guard( 'gsup_save_reviews' );
+		update_option( 'gsup_reviews_publish', isset( $_POST['publish'] ) ? 'yes' : 'no', false ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
+		gsup_flash( 'Saved.' );
+		wp_safe_redirect( gsup_settings_url( 'extension' ) );
 		exit;
 	}
 

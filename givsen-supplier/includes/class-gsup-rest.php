@@ -47,6 +47,15 @@ class GSUP_REST {
 				'permission_callback' => array( __CLASS__, 'verify' ),
 			)
 		);
+		register_rest_route(
+			self::NS,
+			'/reviews',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'reviews' ),
+				'permission_callback' => array( __CLASS__, 'verify' ),
+			)
+		);
 		// AliExpress sends you back here after you approve the connection. Protected by a one-time state code.
 		register_rest_route(
 			self::NS,
@@ -124,6 +133,19 @@ class GSUP_REST {
 				'categories' => $list,
 			)
 		);
+	}
+
+	public static function reviews( WP_REST_Request $request ) {
+		$data = $request->get_json_params();
+		if ( ! is_array( $data ) || empty( $data['reviews'] ) || ! is_array( $data['reviews'] ) ) {
+			return new WP_Error( 'gsup_bad_json', 'No reviews sent.', array( 'status' => 400 ) );
+		}
+		$result = GSUP_Reviews::import( isset( $data['product_id'] ) ? (string) $data['product_id'] : '', $data['reviews'] );
+		if ( is_wp_error( $result ) ) {
+			$result->add_data( array( 'status' => 400 ) );
+			return $result;
+		}
+		return rest_ensure_response( array_merge( array( 'ok' => true ), $result ) );
 	}
 
 	public static function import( WP_REST_Request $request ) {

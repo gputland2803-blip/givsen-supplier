@@ -31,6 +31,13 @@
     '.msg.ok{background:#edfaef;color:#1e6b34}',
     '.msg.err{background:#fcf0f1;color:#b32d2e}',
     '.msg a{color:inherit;font-weight:600}',
+    '.rev{margin-top:12px;padding-top:10px;border-top:1px solid #e0e0e0}',
+    '.rev h4{margin:0 0 8px;font-size:13px}',
+    '.rev .opts{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:#50575e}',
+    '.rev select{padding:4px 6px;border:1px solid #c3c4c7;border-radius:6px;font-size:12px}',
+    '.rev label{display:flex;gap:4px;align-items:center}',
+    '.rev .go{margin-top:8px;background:#fff;color:#111;border:1px solid #111;border-radius:6px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer}',
+    '.rev .go[disabled]{opacity:.6;cursor:default}',
   ].join('');
 
   function isItemPage() {
@@ -224,7 +231,134 @@
     actions.appendChild(cancel);
     actions.appendChild(send);
     card.appendChild(actions);
+    card.appendChild(reviewsBox(productId));
     shadow.appendChild(card);
+  }
+
+  /* ---------- Reviews ---------- */
+
+  function reviewsBox(productId) {
+    var box = el('div', { class: 'rev' });
+    box.appendChild(el('h4', {}, 'Reviews'));
+    var opts = el('div', { class: 'opts' });
+    var stars = el('select', { name: 'rev_stars', 'aria-label': 'Minimum stars' });
+    [['4', '4★ and up'], ['5', '5★ only'], ['3', '3★ and up'], ['1', 'All']].forEach(function (o) { stars.appendChild(el('option', { value: o[0] }, o[1])); });
+    var count = el('select', { name: 'rev_count', 'aria-label': 'How many' });
+    ['10', '20', '30', '50'].forEach(function (n) { count.appendChild(el('option', { value: n }, n + ' reviews')); });
+    count.value = '20';
+    var textOnly = el('input', { type: 'checkbox', name: 'rev_text' });
+    textOnly.checked = true;
+    var photos = el('input', { type: 'checkbox', name: 'rev_photos' });
+    var l1 = el('label', {}); l1.appendChild(textOnly); l1.appendChild(document.createTextNode('with text'));
+    var l2 = el('label', {}); l2.appendChild(photos); l2.appendChild(document.createTextNode('with photos only'));
+    opts.appendChild(stars); opts.appendChild(count); opts.appendChild(l1); opts.appendChild(l2);
+    box.appendChild(opts);
+    var go = el('button', { class: 'go', type: 'button' }, 'Import reviews to my store');
+    go.addEventListener('click', function () {
+      importReviews(go, productId, {
+        minStars: parseInt(stars.value, 10),
+        max: parseInt(count.value, 10),
+        textOnly: textOnly.checked,
+        photosOnly: photos.checked,
+      });
+    });
+    box.appendChild(go);
+    return box;
+  }
+
+  function feedbackUrl(productId, page) {
+    return 'https://feedback.aliexpress.com/pc/searchEvaluation.do?productId=' + encodeURIComponent(productId) +
+      '&lang=en_US&country=AU&page=' + page + '&pageSize=20&filter=all&sort=complex_default';
+  }
+
+  function getFeedback(url) {
+    return fetch(url, { credentials: 'include', cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .catch(function () {
+        return new Promise(function (resolve) {
+          try {
+            chrome.runtime.sendMessage({ type: 'gsup:feedback', url: url }, function (res) {
+              resolve(res && res.ok ? res.data : null);
+            });
+          } catch (e) { resolve(null); }
+        });
+      });
+  }
+
+  /** AliExpress's review list, whatever it's called this month. */
+  function reviewList(data) {
+    var d = data && (data.data || data.result || data);
+    var list = d && (d.evaViewList || d.evaluationList || d.feedbackList || d.list);
+    return Array.isArray(list) ? list : [];
+  }
+
+  function toReview(r) {
+    var raw = r.buyerEval != null ? r.buyerEval : (r.evalStar != null ? r.evalStar : r.star);
+    var rating = Number(raw) || 0;
+    if (rating > 5) rating = Math.round(rating / 20); // 100 → 5 stars
+    var text = (r.buyerTranslationFeedback || r.buyerFeedback || r.content || r.feedback || '').replace(/\s+/g, ' ').trim();
+    var images = r.images || r.imageList || r.evalImages || [];
+    if (!Array.isArray(images)) images = [];
+    images = images.map(function (i) { return typeof i === 'string' ? i : (i && (i.url || i.imgUrl)) || ''; }).filter(Boolean);
+    return {
+      id: String(r.evaluationId || r.evaluationIdStr || r.id || ''),
+      name: r.buyerName || r.anonymousName || '',
+      country: r.buyerCountry || r.country || '',
+      rating: rating,
+      text: text,
+      date: r.evalDate || r.evaluationDate || r.date || '',
+      images: images,
+    };
+  }
+
+  async function importReviews(btn, productId, o) {
+    btn.disabled = true;
+    btn.textContent = 'Reading reviews…';
+    var picked = [];
+    for (var page = 1; page <= 10 && picked.length < o.max; page++) {
+      var data = await getFeedback(feedbackUrl(productId, page));
+      var list = reviewList(data);
+      if (!list.length) break;
+      list.map(toReview).forEach(function (r) {
+        if (picked.length >= o.max) return;
+        if (r.rating < o.minStars) return;
+        if (o.textOnly && r.text.length < 3) return;
+        if (o.photosOnly && !r.images.length) return;
+        picked.push(r);
+      });
+    }
+    if (!picked.length) {
+      btn.disabled = false;
+      btn.textContent = 'Import reviews to my store';
+      showMsg(false, ['No reviews matched (or AliExpress didn’t share them on this page). Try “All” stars or untick the filters.']);
+      return;
+    }
+    btn.textContent = 'Sending ' + picked.length + ' reviews…';
+    try {
+      chrome.runtime.sendMessage({ type: 'gsup:reviews', payload: { product_id: productId, reviews: picked } }, function (res) {
+        btn.disabled = false;
+        btn.textContent = 'Import reviews to my store';
+        if (chrome.runtime.lastError || !res) {
+          showMsg(false, ['The extension was updated or restarted. Refresh this page and try again.']);
+          return;
+        }
+        if (!res.ok) {
+          showMsg(false, [res.message || 'Something went wrong.']);
+          return;
+        }
+        var parts = [res.added + ' review(s) added' + (res.skipped ? ', ' + res.skipped + ' already there or skipped' : '') + ' to ' +
+          (res.products || []).map(function (p) { return p.name; }).join(', ') + '. '];
+        if (res.pending && res.products && res.products[0]) {
+          parts.push('They’re waiting for your approval: ');
+          parts.push(link(res.products[0].edit_url, 'Products → Reviews'));
+        }
+        showMsg(true, parts);
+      });
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Import reviews to my store';
+      showMsg(false, ['The extension was updated or restarted. Refresh this page and try again.']);
+    }
   }
 
   function value(name) {

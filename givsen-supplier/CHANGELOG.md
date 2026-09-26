@@ -1,5 +1,16 @@
 # Givsen Supplier — Changelog
 
+## 0.8.0 — 2026-09-26
+Eight additions.
+1. **Backup supplier per product**: on Change supplier, "Save as backup supplier" remembers the new listing and its option matches without switching. The daily sync switches over automatically when the listing is removed or not for sale, an option disappears, or its cost rises more than a set % (default 15) and the backup is cheaper — the old listing then becomes the backup. Prices are never changed by a switch; you're emailed. Settings → Daily sync; backup shown (with Remove) on the Supplier tab and products list.
+2. **Late parcel alerts**: no tracking N days after ordering (default 7), or not delivered by AliExpress's latest estimate + grace days (default 5; 35 days without an estimate) → order note, one email per check, Overview item, and an "Open on AliExpress / dispute" link on the order.
+3. **Delivered status**: parcels in transit are checked twice a day (in parallel); delivery is read from AliExpress's tracking events. Delivered date per item, order note, optional "your order has been delivered" email to the customer in WooCommerce's style (recipients can be changed with the `gsup_delivered_email_recipients` filter, e.g. for gift recipients). Orders can now be marked Completed when tracking arrives, when delivered, or never.
+4. **Profit report** tab: last 12 months (orders, revenue, AliExpress cost, fees, profit, margin) and each product's profit for a chosen month. Cached; recalculate link.
+5. **Smarter repricing**: sync prices can be never changed, raised only when a price's margin falls below your minimum (up to your pricing rule, never lowered), or always follow the rule.
+6. **Stock buffer**: show sold out when AliExpress has fewer than N left, and cap the stock shown.
+7. **Bulk tidy-up**: Products → Bulk actions → "Tidy text (Givsen Supplier)" for up to 50 products: preview with editable titles, then titles, descriptions, item specifics (from AliExpress) and custom option names/values. "Undo tidy-up" on each product's Supplier tab.
+8. **Review import** (Chrome extension 0.4.0): "Import reviews" on the Add to Givsen card, with filters (minimum stars, with text, with photos, how many). Added to every linked store product as WooCommerce reviews with stars and photos, pending your approval unless you choose otherwise; never duplicated.
+
 ## 0.7.0 — 2026-09-26
 Change supplier, tidy product text, speed.
 - **Change supplier** (product's Supplier tab, products list, order panel and sync email wherever a listing is removed): paste a new AliExpress link, pick the warehouse, and each variation is matched to the new listing's options automatically — by its option values (even after renaming), then by what it was on AliExpress. Change any match, see the new cost and margin at your current price, optionally reprice and republish. Title, description, photos, prices, reviews and URL stay as they are. Unmatched options are set out of stock. "Search AliExpress for a replacement" link. Earlier listings are kept in the product's history.

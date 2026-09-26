@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.7.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.8.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -127,6 +127,24 @@ Drops the import list table and the plugin's options. Keeps product links and or
 
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
+
+## Backup supplier
+`_gsup_backup` = {product_id, ship, map {item ID: SKU ID}, saved_at}. Saved from Change supplier ("Save as backup"). Sync `try_backup()`: triggers — listing gone/not for sale (before drafting), any option gone, max option cost rise > `gsup_backup_rise`% (default 15) when the backup (price + one delivery quote) is cheaper for the mapped items. Usable only if on sale, every mapped SKU exists in the backup's warehouse and isn't out of stock. Switch via `GSUP_Remap::switch_to()` (no reprice, republish if drafted by sync); for a price rise the old listing becomes the backup. Report keys `switched`, `backup_failed`. Off with `gsup_backup_auto` = no.
+
+## Parcels
+Item meta: `_gsup_placed_at`, `_gsup_eta_days` (freight max days when placed automatically), `_gsup_delivered_at`, `_gsup_parcel_last`, `_gsup_alert_notrack`, `_gsup_alert_late`. Order meta: `_gsup_in_transit`, `_gsup_parcel_alert`, `_gsup_delivered_at`. No-tracking alert raised in the tracking check after `gsup_late_notrack_days` (7). `gsup_parcel_check` (every 12 h): up to 40 in-transit orders, least recently checked first, `aliexpress.ds.order.tracking.get` in parallel; delivered when an event reads delivered/signed/picked up by recipient (not attempted/failed/out for delivery). Late when past placed + (eta + `gsup_late_grace_days` (5)) days, or 35 days without an eta. Delivered email (`gsup_delivered_email`, default on; filters `gsup_delivered_email_recipients`, `_heading`, `_body`). `gsup_complete_when`: tracking (default) / delivered / no. Watching stops for closed orders and after 120 days.
+
+## Profit report
+Tab `reports`: `GSUP_Report::month()` over paid statuses, 100 orders a page, using cached order summaries (lines carry product, name, qty). Transient per month: current 30 min, past a week.
+
+## Repricing and stock buffer
+`gsup_sync_prices`: no / low / yes. Low: regular price raised to the rule price only when margin at the current regular price < minimum and the rule price is higher. `gsup_stock_min` (sold out below), `gsup_stock_cap` (max shown) via `GSUP_Sync::store_qty()` in sync, Add to store and Change supplier.
+
+## Bulk tidy-up
+Bulk action `gsup_tidy` → `tab=tidy&ids=` (max 50). Options: titles (editable), descriptions, specs (AliExpress listings fetched in parallel; only names not already on the product), custom option names/values (unique; variations updated, case/slug-tolerant). `_gsup_tidy_undo` saves title, description, `_product_attributes` and variations' attribute meta; "Undo tidy-up" restores them.
+
+## Reviews
+Signed `POST /reviews` {product_id, reviews: [{id, name, country, rating 1–5, text, date, images[]}]} (max 50). Added to every product linked to the AliExpress product as `review` comments (rating, verified 0, `_gsup_ae_review_id`, `_gsup_review_images` — AliExpress image hosts only, max 6); approved only if `gsup_reviews_publish` = yes; duplicates by review ID skipped; product rating recounted. Photos shown under the review text.
 
 ## Change supplier
 `tab=remap&product=<id>` (Supplier tab button; links from products list, order panel, sync email). New link → listing fetched for the product's warehouse (single ships-from) else AU; warehouse switchable. Auto-match (`GSUP_Remap::auto_match`): words from each item's attribute values + stored AliExpress option text vs each new option's text (filler, "color/size", piece counts dropped; numbers kept); score = overlap ÷ smaller side (×0.8) + Jaccard (×0.2); greedy one-to-one, threshold 0.5; single item + single option always match; below 0.8 flagged "best guess". Save: SKU/option/cost/ships-from/delivery fee+method/stock on matched items (regular price kept unless "reprice"); unmatched → SKU/option removed, out of stock, `_gsup_option_gone`. Parent: new product ID, `_gsup_supplier_history` (last 10), sync flags cleared, `_gsup_ship_quoted` set, republished if chosen and drafted by the sync, margin flag, CBR (overwritten when the warehouse changed).

@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.7.0
+Stable tag: 0.8.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -23,11 +23,18 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 * AliExpress delivery fees in your costs and pricing rule.
 * Country Based Restrictions set from where each product ships.
 * Change supplier when a seller removes a listing, with options matched automatically.
-* Clean, WooCommerce-style titles, option names, descriptions and specifications.
+* Clean, WooCommerce-style titles, option names, descriptions and specifications — for new products and in bulk for existing ones.
+* Backup suppliers that take over automatically.
+* Late-parcel alerts and delivery tracking with a "delivered" email.
+* Monthly profit report.
+* AliExpress review import via the Chrome extension.
 
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.8.0 =
+* Backup suppliers with automatic switching, late-parcel alerts and delivered status (customer email, complete on delivery), profit report, smarter repricing, stock buffer, bulk tidy-up with undo, AliExpress review import (extension 0.4.0).
 
 = 0.7.0 =
 * Change supplier: point a product at a new AliExpress listing with options matched automatically. Tidy titles, option names and descriptions on Add to store, with item specifics in WooCommerce's Additional information tab. Faster: parallel AliExpress calls, weekly delivery quotes, nothing extra on shop pages, cached margins and profit.

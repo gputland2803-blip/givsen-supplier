@@ -59,6 +59,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     callStore('import', 'POST', msg.payload).then(sendResponse);
     return true;
   }
+  if (msg.type === 'gsup:reviews') {
+    callStore('reviews', 'POST', msg.payload).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'gsup:feedback') {
+    // Fallback when the page itself can't read AliExpress's review feed.
+    fetch(msg.url, { credentials: 'include', cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (msg.type === 'gsup:categories') {
     const fresh = categoryCache && Date.now() - categoryCache.at < 10 * 60 * 1000;
     if (fresh && !msg.reload) {
