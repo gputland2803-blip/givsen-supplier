@@ -81,4 +81,13 @@
 	window.addEventListener('beforeunload', function (e) {
 		if (dirty) { e.preventDefault(); e.returnValue = ''; }
 	});
+
+	// Add to store: put back AliExpress's original title.
+	document.addEventListener('click', function (e) {
+		var a = e.target.closest ? e.target.closest('.gsup-use-original') : null;
+		if (!a) { return; }
+		e.preventDefault();
+		var input = document.querySelector('.gsup-create-form input[name="title"]');
+		if (input) { input.value = a.getAttribute('data-title'); }
+	});
 })();

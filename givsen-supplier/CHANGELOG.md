@@ -1,5 +1,17 @@
 # Givsen Supplier — Changelog
 
+## 0.7.0 — 2026-09-26
+Change supplier, tidy product text, speed.
+- **Change supplier** (product's Supplier tab, products list, order panel and sync email wherever a listing is removed): paste a new AliExpress link, pick the warehouse, and each variation is matched to the new listing's options automatically — by its option values (even after renaming), then by what it was on AliExpress. Change any match, see the new cost and margin at your current price, optionally reprice and republish. Title, description, photos, prices, reviews and URL stay as they are. Unmatched options are set out of stock. "Search AliExpress for a replacement" link. Earlier listings are kept in the product's history.
+- **Tidy product text on Add to store**: title cleaned of sales filler, years, piece counts, repeats and shouting (original one click away); option names and values tidied ("1PC-RED" → "Red") and editable before creating; description cleaned of AliExpress styling, fonts, fixed sizes and links back to AliExpress, images lazy-loaded; item specifics (Material, Capacity…) added to WooCommerce's Additional information tab, noise like Origin/CN/Brand Name: None left out; optional short description from the specifics. Links stay by ID, so renaming never affects ordering or sync.
+- **Faster, lighter**:
+  - Background jobs make several AliExpress calls at once (5 at a time; filter `gsup_ae_parallel`). The daily sync fetches a whole batch of listings and delivery quotes together (batch 15 → 25); the tracking check fetches all waiting AliExpress orders together.
+  - Delivery quotes refresh weekly per product (filter `gsup_ship_quote_days`) instead of daily — about half the sync's AliExpress calls.
+  - Shop pages no longer do any Givsen Supplier database work on load: schedule and upgrade checks run only in the admin and background jobs, at most every 12 hours.
+  - Products list reads a stored margin summary instead of loading every variation; orders list caches profit per order until the order changes.
+  - Import list and Add to store look up existing links with two queries per page instead of up to two per row.
+  - Overview counts no longer load every matching order or product.
+
 ## 0.6.1 — 2026-09-26
 Settings redesign and fixes.
 - **Settings redesigned**: a side menu of sections (Overview, AliExpress connection, Ordering & tracking, Pricing & profit, Daily sync, Country restrictions, Chrome extension), each with an on/off/needs-attention badge. Overview lists anything waiting on you (not connected, import list items, orders that couldn't be placed, low-margin products, a stopped sync) and a card per area. Save buttons stay on their section, a warning appears if you leave with unsaved changes, CBR storage keys are tucked under "Advanced", and the menu becomes a tab row on narrow screens.

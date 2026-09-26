@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.6.1 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.7.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -127,6 +127,19 @@ Drops the import list table and the plugin's options. Keeps product links and or
 
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
+
+## Change supplier
+`tab=remap&product=<id>` (Supplier tab button; links from products list, order panel, sync email). New link → listing fetched for the product's warehouse (single ships-from) else AU; warehouse switchable. Auto-match (`GSUP_Remap::auto_match`): words from each item's attribute values + stored AliExpress option text vs each new option's text (filler, "color/size", piece counts dropped; numbers kept); score = overlap ÷ smaller side (×0.8) + Jaccard (×0.2); greedy one-to-one, threshold 0.5; single item + single option always match; below 0.8 flagged "best guess". Save: SKU/option/cost/ships-from/delivery fee+method/stock on matched items (regular price kept unless "reprice"); unmatched → SKU/option removed, out of stock, `_gsup_option_gone`. Parent: new product ID, `_gsup_supplier_history` (last 10), sync flags cleared, `_gsup_ship_quoted` set, republished if chosen and drafted by the sync, margin flag, CBR (overwritten when the warehouse changed).
+
+## Product text (Add to store)
+`GSUP_Tidy`: title (filler list `gsup_tidy_title_words`, years, piece counts, repeated words, ALL-CAPS → Title Case keeping acronyms/sizes `gsup_tidy_acronyms`, max `gsup_tidy_title_length` 90); option names/values (editable, kept unique per option); description (removes script/style/iframe/forms, comments, style/class/size attributes, font/span, AliExpress links; images https + lazy + alt; empty blocks); specs from `ae_item_properties` minus `gsup_tidy_skip_specs` and empty values, max 12, as visible non-variation attributes (skipping names used by variations); optional short description (first 5). `_gsup_ae_option` keeps AliExpress's own wording for ordering.
+
+## Performance
+- AliExpress: `request_many()` via `WpOrg\Requests\Requests::request_multiple`, chunks of `gsup_ae_parallel` (5), WP CA bundle and proxy; sequential fallback. Batch helpers `get_products()`, `freights()`, `get_orders()`.
+- Sync prefetches each batch (25) in parallel; delivery quote due when `_gsup_ship_quoted` is older than `gsup_ship_quote_days` (7) or an option lacks a fee.
+- Nothing runs on shop page loads: `maybe_upgrade()` and `gsup_ensure_schedules()` only in admin/cron/CLI, schedules re-checked at most every 12 h (`gsup_schedules_ok` transient).
+- `_gsup_margin` product summary (refreshed with the low-margin flag); `_gsup_profit_cache` on orders keyed by modified date + profit settings.
+- `gsup_prime_links()` answers link lookups for a whole screen in two queries.
 
 ## Settings screen
 `tab=settings&section=<overview|aliexpress|ordering|pricing|sync|countries|extension>` (default overview; `gsup_settings_url()`). Side menu with a status badge per section (tab row under 960px). Overview: "Needs your attention" (AliExpress not connected, import list waiting, Processing orders with auto state failed/partial, low-margin products, last sync stopped) and one card per section. Every save/connect/test action returns to its own section. Save forms (`.gsup-save-form`) warn on leaving with unsaved changes.

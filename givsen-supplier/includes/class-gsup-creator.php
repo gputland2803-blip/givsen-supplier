@@ -113,9 +113,26 @@ class GSUP_Creator {
 	 * @param string[] $sku_ids  Options to include.
 	 * @param string   $title    Product title to use.
 	 * @param int[]    $category_ids Store categories (empty = WooCommerce's default category).
+	 * @param array    $opts {
+	 *     @type array $names            Option name renames: AliExpress name => your name.
+	 *     @type array $values           Option value renames: AliExpress name => [AliExpress value => your value].
+	 *     @type bool  $tidy_description Clean AliExpress styling out of the description (default true).
+	 *     @type bool  $specs            Add item specifics to "Additional information" (default true).
+	 *     @type bool  $short            Short description from the first specifics (default false).
+	 * }
 	 * @return int|WP_Error New product ID.
 	 */
-	public static function create( array $product, $ship, array $sku_ids, $title, array $category_ids = array() ) {
+	public static function create( array $product, $ship, array $sku_ids, $title, array $category_ids = array(), array $opts = array() ) {
+		$opts = array_merge(
+			array(
+				'names'            => array(),
+				'values'           => array(),
+				'tidy_description' => true,
+				'specs'            => true,
+				'short'            => false,
+			),
+			$opts
+		);
 		$chosen = array();
 		foreach ( $product['skus'] as $sku ) {
 			if ( $sku['ship_from'] === $ship && in_array( (string) $sku['sku_id'], $sku_ids, true ) ) {
@@ -150,6 +167,7 @@ class GSUP_Creator {
 		}
 		$chosen      = $unique;
 		$is_variable = count( $chosen ) > 1 && $names;
+		list( $name_of, $value_of ) = self::renamer( $names, $chosen, $opts );
 
 		$freight = self::quote( $product['product_id'], $chosen[0]['sku_id'], $ship );
 		$freight = is_wp_error( $freight ) ? null : $freight;
@@ -161,7 +179,11 @@ class GSUP_Creator {
 		$wc = $is_variable ? new WC_Product_Variable() : new WC_Product_Simple();
 		$wc->set_name( $title );
 		$wc->set_status( 'draft' );
-		$wc->set_description( self::clean_description( $product['description'] ) );
+		$wc->set_description( $opts['tidy_description'] ? GSUP_Tidy::description( $product['description'], $title ) : self::clean_description( $product['description'] ) );
+		$specs = $opts['specs'] || $opts['short'] ? GSUP_Tidy::specs( isset( $product['specs'] ) ? $product['specs'] : array() ) : array();
+		if ( $opts['short'] && $specs ) {
+			$wc->set_short_description( GSUP_Tidy::short_description( $specs ) );
+		}
 		$category_ids = gsup_clean_category_ids( $category_ids );
 		if ( $category_ids ) {
 			$wc->set_category_ids( $category_ids );
@@ -179,17 +201,47 @@ class GSUP_Creator {
 					}
 				}
 				$attr = new WC_Product_Attribute();
-				$attr->set_name( $name );
-				$attr->set_options( $values );
+				$attr->set_name( $name_of( $name ) );
+				$attr->set_options(
+					array_map(
+						function ( $v ) use ( $value_of, $name ) {
+							return $value_of( $name, $v );
+						},
+						$values
+					)
+				);
 				$attr->set_position( $i );
 				$attr->set_visible( true );
 				$attr->set_variation( true );
 				$attributes[] = $attr;
 			}
-			$wc->set_attributes( $attributes );
 		} else {
-			$sku = $chosen[0];
+			$attributes = array();
+			$sku        = $chosen[0];
 			self::apply_price_and_stock( $wc, $sku, $freight );
+		}
+		// Item specifics → "Additional information" tab (not used for variations).
+		if ( $opts['specs'] ) {
+			$taken = array();
+			foreach ( $attributes as $a ) {
+				$taken[ strtolower( $a->get_name() ) ] = true;
+			}
+			$pos = count( $attributes );
+			foreach ( $specs as $spec_name => $spec_value ) {
+				if ( isset( $taken[ strtolower( $spec_name ) ] ) ) {
+					continue;
+				}
+				$attr = new WC_Product_Attribute();
+				$attr->set_name( $spec_name );
+				$attr->set_options( array( str_replace( '|', '/', $spec_value ) ) );
+				$attr->set_position( $pos++ );
+				$attr->set_visible( true );
+				$attr->set_variation( false );
+				$attributes[] = $attr;
+			}
+		}
+		if ( $attributes ) {
+			$wc->set_attributes( $attributes );
 		}
 
 		$wc->update_meta_data( GSUP_META_PRODUCT, (string) $product['product_id'] );
@@ -233,7 +285,7 @@ class GSUP_Creator {
 					if ( $p['is_ship'] ) {
 						continue;
 					}
-					$attrs[ sanitize_title( $p['name'] ) ] = $p['value'];
+					$attrs[ sanitize_title( $name_of( $p['name'] ) ) ] = $value_of( $p['name'], $p['value'] );
 					if ( '' === $img && '' !== $p['image'] ) {
 						$img = $p['image'];
 					}
@@ -273,6 +325,46 @@ class GSUP_Creator {
 		return $product_id;
 	}
 
+	/**
+	 * Functions that give an option name/value its store name. Renamed values stay unique within an option
+	 * (two values renamed alike keep the second's original), so no two variations clash.
+	 *
+	 * @return array{0:callable,1:callable} name_of( $name ), value_of( $name, $value )
+	 */
+	private static function renamer( array $names, array $chosen, array $opts ) {
+		$name_map = array();
+		$used     = array();
+		foreach ( $names as $n ) {
+			$new = isset( $opts['names'][ $n ] ) ? trim( (string) $opts['names'][ $n ] ) : '';
+			$new = '' !== $new && ! isset( $used[ strtolower( $new ) ] ) ? $new : $n;
+			$used[ strtolower( $new ) ] = true;
+			$name_map[ $n ]             = str_replace( '|', '/', $new );
+		}
+		$value_map = array();
+		foreach ( $names as $n ) {
+			$taken = array();
+			foreach ( $chosen as $sku ) {
+				foreach ( $sku['props'] as $p ) {
+					if ( $p['name'] !== $n || isset( $value_map[ $n ][ $p['value'] ] ) ) {
+						continue;
+					}
+					$new = isset( $opts['values'][ $n ][ $p['value'] ] ) ? trim( (string) $opts['values'][ $n ][ $p['value'] ] ) : '';
+					$new = '' !== $new && ! isset( $taken[ strtolower( $new ) ] ) ? $new : $p['value'];
+					$taken[ strtolower( $new ) ] = true;
+					$value_map[ $n ][ $p['value'] ] = str_replace( '|', '/', $new );
+				}
+			}
+		}
+		return array(
+			function ( $n ) use ( $name_map ) {
+				return isset( $name_map[ $n ] ) ? $name_map[ $n ] : $n;
+			},
+			function ( $n, $v ) use ( $value_map ) {
+				return isset( $value_map[ $n ][ $v ] ) ? $value_map[ $n ][ $v ] : $v;
+			},
+		);
+	}
+
 	/** AliExpress description HTML, minus scripts, styles and anything unsafe. */
 	private static function clean_description( $html ) {
 		$html = preg_replace( '#<(script|style|iframe|noscript)\b[^>]*>.*?</\1\s*>#is', '', (string) $html );
@@ -287,7 +379,7 @@ class GSUP_Creator {
 		}
 	}
 
-	private static function apply_price_and_stock( $wc, array $sku, $freight = null ) {
+	public static function apply_price_and_stock( $wc, array $sku, $freight = null ) {
 		$price = self::price_for( $sku['price'], $freight ? $freight['fee'] : 0 );
 		if ( '' !== $price ) {
 			$wc->set_regular_price( $price );

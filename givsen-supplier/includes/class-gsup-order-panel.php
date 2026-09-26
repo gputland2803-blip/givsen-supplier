@@ -217,7 +217,7 @@ class GSUP_Order_Panel {
 				echo '<dt>Quantity</dt><dd><strong>' . (int) $qty . '</strong></dd>';
 				echo '</dl>';
 				if ( get_post_meta( $product->get_id(), '_gsup_option_gone', true ) || 'removed' === get_post_meta( $product->is_type( 'variation' ) ? $product->get_parent_id() : $product->get_id(), '_gsup_sync_status', true ) ) {
-					echo '<div class="gsup-warn">AliExpress no longer sells this — check the listing before ordering, or contact the customer.</div>';
+					echo '<div class="gsup-warn">AliExpress no longer sells this — <a href="' . esc_url( gsup_remap_url( $product->is_type( 'variation' ) ? $product->get_parent_id() : $product->get_id() ) ) . '">change supplier</a>, then order it, or contact the customer.</div>';
 				}
 				if ( 'parent' !== $link['level'] && '' === $link['sku_id'] && '' === $link['option'] ) {
 					echo '<div class="gsup-warn gsup-warn--soft">No option stored for this item — check the AliExpress page carefully before ordering.</div>';

@@ -156,3 +156,9 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 .gsup-advanced { margin: 4px 0 12px; padding: 8px 12px; border: 1px solid #f0f0f1; border-radius: 4px; background: #fbfbfc; }
 .gsup-advanced summary { cursor: pointer; font-weight: 600; }
 .gsup-advanced[open] summary { margin-bottom: 6px; }
+
+/* Add to store: option names */
+.gsup-rename { max-width: 900px; }
+.gsup-rename th { width: 200px; }
+.gsup-rename th input { width: 100%; font-weight: 600; }
+.gsup-rename-value input { width: 150px; margin: 2px 0; }

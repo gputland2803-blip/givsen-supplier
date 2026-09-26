@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Givsen Supplier
  * Description:       Links WooCommerce products to AliExpress by ID (product ID on the product, SKU ID on each variation), places paid orders on AliExpress automatically and brings tracking back, and shows your margin on every product and order. Replaces DSers.
- * Version:           0.6.1
+ * Version:           0.7.0
  * Author:            Givsen
  * Requires at least: 6.4
  * Requires PHP:      7.4
@@ -12,8 +12,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'GSUP_VERSION', '0.6.1' );
-define( 'GSUP_DB_VERSION', '3' );
+define( 'GSUP_VERSION', '0.7.0' );
+define( 'GSUP_DB_VERSION', '4' ); // 4: version flag autoloaded.
 define( 'GSUP_FILE', __FILE__ );
 define( 'GSUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSUP_URL', plugin_dir_url( __FILE__ ) );
@@ -58,6 +58,7 @@ function gsup_boot() {
 	require_once GSUP_DIR . 'includes/class-gsup-import.php';
 	require_once GSUP_DIR . 'includes/class-gsup-rest.php';
 	require_once GSUP_DIR . 'includes/class-gsup-aliexpress.php';
+	require_once GSUP_DIR . 'includes/class-gsup-tidy.php';
 	require_once GSUP_DIR . 'includes/class-gsup-creator.php';
 	require_once GSUP_DIR . 'includes/class-gsup-sync.php';
 	require_once GSUP_DIR . 'includes/class-gsup-profit.php';
@@ -79,6 +80,8 @@ function gsup_boot() {
 		require_once GSUP_DIR . 'includes/class-gsup-products-column.php';
 		require_once GSUP_DIR . 'includes/class-gsup-admin-page.php';
 		require_once GSUP_DIR . 'includes/class-gsup-order-panel.php';
+		require_once GSUP_DIR . 'includes/class-gsup-remap.php';
+		GSUP_Remap::init();
 		GSUP_Product_Fields::init();
 		GSUP_Products_Column::init();
 		GSUP_Admin_Page::init();

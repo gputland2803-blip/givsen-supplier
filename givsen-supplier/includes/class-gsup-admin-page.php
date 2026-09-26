@@ -62,13 +62,15 @@ class GSUP_Admin_Page {
 			return;
 		}
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'import'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$tab = in_array( $tab, array( 'import', 'settings', 'create' ), true ) ? $tab : 'import';
+		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap' ), true ) ? $tab : 'import';
 		echo '<div class="wrap gsup-wrap">';
 		echo '<h1 class="wp-heading-inline">Givsen Supplier</h1>';
 		echo '<nav class="nav-tab-wrapper">';
 		echo '<a class="nav-tab' . ( 'import' === $tab ? ' nav-tab-active' : '' ) . '" href="' . esc_url( gsup_admin_url() ) . '">Import list</a>';
 		if ( 'create' === $tab ) {
 			echo '<span class="nav-tab nav-tab-active">Add to store</span>';
+		} elseif ( 'remap' === $tab ) {
+			echo '<span class="nav-tab nav-tab-active">Change supplier</span>';
 		}
 		echo '<a class="nav-tab' . ( 'settings' === $tab ? ' nav-tab-active' : '' ) . '" href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '">Settings</a>';
 		echo '</nav>';
@@ -77,6 +79,8 @@ class GSUP_Admin_Page {
 			self::render_settings();
 		} elseif ( 'create' === $tab ) {
 			self::render_create();
+		} elseif ( 'remap' === $tab && class_exists( 'GSUP_Remap' ) ) {
+			GSUP_Remap::render();
 		} else {
 			self::render_import();
 		}
@@ -611,8 +615,52 @@ class GSUP_Admin_Page {
 		}
 		echo '<p class="gsup-meta">' . ( $row && '' !== $row['category_ids'] ? 'Ticked from what you chose in the extension. ' : ( $selected ? 'Ticked with the categories you used last time. ' : '' ) ) . 'Leave all unticked to use WooCommerce’s default category. <a href="' . esc_url( admin_url( 'edit-tags.php?taxonomy=product_cat&post_type=product' ) ) . '" target="_blank" rel="noopener">Add a new category ↗</a> (then reload this page).</p>';
 
-		echo '<h2>4. Title</h2><p><input type="text" name="title" class="large-text" value="' . esc_attr( $product['title'] ) . '"></p>';
-		echo '<p class="gsup-meta">The product is created as a <strong>draft</strong> with AliExpress’s description and photos, so you can tidy the wording and check prices before publishing. Photos are copied into your Media Library — this can take up to a minute.</p>';
+		$tidy = GSUP_Tidy::title( $product['title'] );
+		echo '<h2>4. Title</h2><p><input type="text" name="title" class="large-text" value="' . esc_attr( $tidy ) . '"></p>';
+		if ( $tidy !== trim( $product['title'] ) ) {
+			echo '<p class="gsup-meta">Tidied from AliExpress’s title: “' . esc_html( $product['title'] ) . '”. <a href="#" class="gsup-use-original" data-title="' . esc_attr( $product['title'] ) . '">Use the original</a></p>';
+		}
+
+		// Option names and values, tidied and editable. Links are by SKU ID, so these can be anything.
+		$opt_names = array();
+		foreach ( $groups[ $want ] as $sku ) {
+			foreach ( $sku['props'] as $prop ) {
+				if ( ! $prop['is_ship'] ) {
+					$opt_names[ $prop['name'] ][ $prop['value'] ] = true;
+				}
+			}
+		}
+		if ( $opt_names ) {
+			echo '<h2>5. Option names</h2><p class="gsup-meta">What customers see. Tidied from AliExpress’s wording — change anything you like. The link to AliExpress is by ID, so renaming never breaks ordering.</p>';
+			echo '<table class="widefat striped gsup-rename"><tbody>';
+			$ni = 0;
+			foreach ( $opt_names as $oname => $ovalues ) {
+				echo '<tr><th scope="row"><input type="hidden" name="rn_name_orig[' . $ni . ']" value="' . esc_attr( $oname ) . '"><input type="text" name="rn_name[' . $ni . ']" value="' . esc_attr( GSUP_Tidy::option_name( $oname ) ) . '" aria-label="Option name"></th><td>';
+				$vi = 0;
+				foreach ( array_keys( $ovalues ) as $ovalue ) {
+					$tv = GSUP_Tidy::option_value( $ovalue );
+					echo '<label class="gsup-rename-value"><input type="hidden" name="rn_value_orig[' . $ni . '][' . $vi . ']" value="' . esc_attr( $ovalue ) . '"><input type="text" name="rn_value[' . $ni . '][' . $vi . ']" value="' . esc_attr( $tv ) . '" title="' . esc_attr( 'AliExpress: ' . $ovalue ) . '"></label> ';
+					++$vi;
+				}
+				echo '</td></tr>';
+				++$ni;
+			}
+			echo '</tbody></table>';
+		}
+
+		echo '<h2>' . ( $opt_names ? '6' : '5' ) . '. Description</h2>';
+		echo '<p><label><input type="checkbox" name="tidy_description" value="1" checked> Clean up the description — remove AliExpress’s styling, fixed sizes and links back to AliExpress so it follows your theme</label><br>';
+		echo '<label><input type="checkbox" name="specs" value="1" checked> Add the item specifics (material, size…) to the <strong>Additional information</strong> tab</label>';
+		$specs = GSUP_Tidy::specs( isset( $product['specs'] ) ? $product['specs'] : array() );
+		if ( $specs ) {
+			$preview = array();
+			foreach ( array_slice( $specs, 0, 4, true ) as $sn => $sv ) {
+				$preview[] = $sn . ': ' . $sv;
+			}
+			echo ' <span class="gsup-meta">(' . esc_html( implode( ' · ', $preview ) . ( count( $specs ) > 4 ? ' …' : '' ) ) . ')</span>';
+		}
+		echo '<br><label><input type="checkbox" name="short" value="1"> Use the first few specifics as the short description</label></p>';
+		echo '<p class="gsup-meta">The product is created as a <strong>draft</strong> with AliExpress’s photos, so you can check the wording and prices before publishing. Photos are copied into your Media Library — this can take up to a minute.</p>';
 		echo '<p><button type="submit" class="button button-primary button-hero gsup-create-btn">Create draft product</button></p>';
 		echo '</form>';
 	}
@@ -1078,7 +1126,7 @@ class GSUP_Admin_Page {
 			wp_safe_redirect( $back );
 			exit;
 		}
-		$id = GSUP_Creator::create( $product, $ship, array_filter( $skus ), $title, $cats );
+		$id = GSUP_Creator::create( $product, $ship, array_filter( $skus ), $title, $cats, self::posted_create_options() );
 		if ( is_wp_error( $id ) ) {
 			gsup_flash( esc_html( $id->get_error_message() ), 'error' );
 			wp_safe_redirect( $back );
@@ -1092,6 +1140,37 @@ class GSUP_Admin_Page {
 		}
 		wp_safe_redirect( admin_url( 'post.php?post=' . (int) $id . '&action=edit' ) );
 		exit;
+	}
+
+	/** Renames and text options from the Add to store form. */
+	private static function posted_create_options() {
+		// phpcs:disable WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce checked in handle_create(); each value sanitized below.
+		$opts = array(
+			'names'            => array(),
+			'values'           => array(),
+			'tidy_description' => ! empty( $_POST['tidy_description'] ),
+			'specs'            => ! empty( $_POST['specs'] ),
+			'short'            => ! empty( $_POST['short'] ),
+		);
+		$name_orig  = isset( $_POST['rn_name_orig'] ) && is_array( $_POST['rn_name_orig'] ) ? wp_unslash( $_POST['rn_name_orig'] ) : array();
+		$name_new   = isset( $_POST['rn_name'] ) && is_array( $_POST['rn_name'] ) ? wp_unslash( $_POST['rn_name'] ) : array();
+		$value_orig = isset( $_POST['rn_value_orig'] ) && is_array( $_POST['rn_value_orig'] ) ? wp_unslash( $_POST['rn_value_orig'] ) : array();
+		$value_new  = isset( $_POST['rn_value'] ) && is_array( $_POST['rn_value'] ) ? wp_unslash( $_POST['rn_value'] ) : array();
+		// phpcs:enable
+		foreach ( $name_orig as $i => $orig ) {
+			$orig = sanitize_text_field( $orig );
+			if ( isset( $name_new[ $i ] ) ) {
+				$opts['names'][ $orig ] = mb_substr( sanitize_text_field( $name_new[ $i ] ), 0, 100 );
+			}
+			if ( isset( $value_orig[ $i ] ) && is_array( $value_orig[ $i ] ) ) {
+				foreach ( $value_orig[ $i ] as $j => $vorig ) {
+					if ( isset( $value_new[ $i ][ $j ] ) ) {
+						$opts['values'][ $orig ][ sanitize_text_field( $vorig ) ] = mb_substr( sanitize_text_field( $value_new[ $i ][ $j ] ), 0, 150 );
+					}
+				}
+			}
+		}
+		return $opts;
 	}
 
 	public static function handle_save_pricing() {

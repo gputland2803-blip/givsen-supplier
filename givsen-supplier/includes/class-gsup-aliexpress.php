@@ -523,12 +523,26 @@ class GSUP_AliExpress {
 			'image'      => isset( $images[0] ) ? $images[0] : '',
 			'images'     => $images,
 			'description' => (string) ( $base['detail'] ?? '' ),
+			'specs'      => self::specs_of( $result ),
 			'currency'   => (string) ( $base['currency_code'] ?? '' ),
 			'status'     => $status,
 			'on_sale'    => '' === $status || 'onSelling' === $status,
 			'ship_to'    => $ship_to,
 			'skus'       => $skus,
 		);
+	}
+
+	/** Item specifics (Material, Size…) as [[name, value], …]. */
+	private static function specs_of( array $result ) {
+		$out = array();
+		foreach ( self::items( $result['ae_item_properties'] ?? null, 'ae_item_property' ) as $p ) {
+			$name  = trim( (string) ( $p['attr_name'] ?? '' ) );
+			$value = trim( (string) ( $p['attr_value'] ?? '' ) );
+			if ( '' !== $name && '' !== $value ) {
+				$out[] = array( $name, $value );
+			}
+		}
+		return $out;
 	}
 
 	/** Find one SKU in a normalised product. */

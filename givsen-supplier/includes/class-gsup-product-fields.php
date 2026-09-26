@@ -45,7 +45,13 @@ class GSUP_Product_Fields {
 			)
 		);
 		if ( '' !== $ae_pid ) {
-			echo '<p class="form-field"><label>&nbsp;</label><a href="' . esc_url( gsup_ae_url( $ae_pid ) ) . '" target="_blank" rel="noopener noreferrer">Open on AliExpress ↗</a></p>';
+			$removed = 'removed' === get_post_meta( $id, '_gsup_sync_status', true );
+			echo '<p class="form-field"><label>&nbsp;</label><a href="' . esc_url( gsup_ae_url( $ae_pid ) ) . '" target="_blank" rel="noopener noreferrer">Open on AliExpress ↗</a> &nbsp; ';
+			echo '<a class="button' . ( $removed ? ' button-primary' : '' ) . '" href="' . esc_url( gsup_remap_url( $id ) ) . '">Change supplier…</a>';
+			if ( $removed ) {
+				echo '<br><span class="gsup-sub--bad">AliExpress no longer sells this listing — pick a replacement and your options are matched automatically.</span>';
+			}
+			echo '</p>';
 		}
 		echo '</div>';
 

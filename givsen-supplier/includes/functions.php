@@ -380,6 +380,16 @@ function gsup_admin_url( $args = array() ) {
 	return add_query_arg( array_merge( array( 'page' => 'gsup' ), $args ), admin_url( 'admin.php' ) );
 }
 
+/** "Change supplier" screen for a store product. */
+function gsup_remap_url( $product_id ) {
+	return gsup_admin_url(
+		array(
+			'tab'     => 'remap',
+			'product' => (int) $product_id,
+		)
+	);
+}
+
 /** A Settings section, e.g. gsup_settings_url( 'ordering' ). */
 function gsup_settings_url( $section = '', $args = array() ) {
 	$base = array( 'tab' => 'settings' );

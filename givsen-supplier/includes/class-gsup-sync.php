@@ -498,16 +498,16 @@ class GSUP_Sync {
 		$lines[] = 'Givsen Supplier checked ' . (int) $r['checked'] . ' product(s) against AliExpress.';
 		$lines[] = '';
 		if ( $r['removed'] ) {
-			$lines[] = 'No longer available on AliExpress — switched to draft so customers can’t order them:';
+			$lines[] = 'No longer available on AliExpress — switched to draft so customers can’t order them. Use “Change supplier” to point each one at a new listing (options are matched for you):';
 			foreach ( $r['removed'] as $id ) {
-				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . admin_url( 'post.php?post=' . (int) $id . '&action=edit' );
+				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . gsup_remap_url( $id );
 			}
 			$lines[] = '';
 		}
 		if ( $r['options_gone'] ) {
 			$lines[] = 'Options no longer on AliExpress — set to out of stock:';
 			foreach ( $r['options_gone'] as $id ) {
-				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . gsup_product_edit_url( $id );
+				$lines[] = '  • ' . gsup_product_label( $id ) . ' — change supplier: ' . gsup_remap_url( wp_get_post_parent_id( $id ) ? wp_get_post_parent_id( $id ) : $id );
 			}
 			$lines[] = '';
 		}

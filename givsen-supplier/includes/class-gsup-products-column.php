@@ -46,7 +46,7 @@ class GSUP_Products_Column {
 		$sync_status = (string) get_post_meta( $post_id, '_gsup_sync_status', true );
 		echo '<a class="gsup-badge ' . ( 'removed' === $sync_status ? 'gsup-badge--bad' : 'gsup-badge--on' ) . '" href="' . esc_url( gsup_ae_url( $ae_pid ) ) . '" target="_blank" rel="noopener noreferrer" title="Open on AliExpress">AE ' . esc_html( $ae_pid ) . '</a>';
 		if ( 'removed' === $sync_status ) {
-			echo '<span class="gsup-sub gsup-sub--bad">Removed on AliExpress</span>';
+			echo '<span class="gsup-sub gsup-sub--bad">Removed on AliExpress · <a href="' . esc_url( gsup_remap_url( $post_id ) ) . '">Change supplier</a></span>';
 		} elseif ( 'missing' === $sync_status ) {
 			echo '<span class="gsup-sub gsup-sub--warn">Not found at last sync</span>';
 		}
@@ -77,7 +77,7 @@ class GSUP_Products_Column {
 				}
 			}
 			if ( $gone ) {
-				echo '<span class="gsup-sub gsup-sub--bad">' . (int) $gone . ' no longer on AliExpress</span>';
+				echo '<span class="gsup-sub gsup-sub--bad">' . (int) $gone . ' no longer on AliExpress · <a href="' . esc_url( gsup_remap_url( $post_id ) ) . '">Change supplier</a></span>';
 			}
 		} else {
 			if ( '' === (string) get_post_meta( $post_id, GSUP_META_SKU, true ) ) {
