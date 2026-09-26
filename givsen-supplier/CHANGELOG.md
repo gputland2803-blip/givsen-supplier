@@ -1,5 +1,11 @@
 # Givsen Supplier — Changelog
 
+## 0.10.0 — 2026-09-26
+- **Rewrite with AI**: select products → Bulk actions → "Rewrite with AI" (or the link under a product's name). Claude writes a new title, description and short description for each, two at a time; you see old and new side by side, edit anything, and apply only the ones you tick. The old text is saved — "Undo text changes" on the Supplier tab (also covers bulk tidy-up, now including short descriptions).
+  - Settings → AI writing: your Claude API key (administrators only, stored on your site), model — Claude Haiku 4.5 (cheapest, about 0.2¢ a product, default) or Claude Sonnet 5 (better writing, about 0.4¢) — your store's voice, extra instructions, title length, Australian/British/American spelling.
+  - Claude is told to use only facts already on the product (no invented materials, sizes or claims), keep every size/material detail, and never mention AliExpress, suppliers, shipping times or reviews. Descriptions come back as simple HTML (paragraphs, a bullet list, bold) and anything else is stripped.
+  - Running cost shown as it goes. Clear messages for a wrong key, rate limits, no credit, or a declined rewrite, with Retry.
+
 ## 0.9.0 — 2026-09-26
 - **Delivery estimate on product pages** (Settings → Pricing, profit & delivery estimate; off until you turn it on): under the price, as dates ("Estimated delivery: Tue 1 Oct – Fri 4 Oct") or days ("Delivered in 3–6 business days"), from AliExpress's estimate for your shipping method plus your processing days, business days optional. Variable products show the range, then the chosen option's own estimate. The estimate is saved on Add to store, Change supplier and the weekly delivery quote — existing products get it at their next weekly quote.
 - **Diagnostics log** (Settings → AliExpress connection → Diagnostics): the last 30 AliExpress calls with their replies, "Copy all" to paste to whoever's helping. Access token, app key, signatures and customers' addresses are never kept. Saved once per page load; can be switched off.

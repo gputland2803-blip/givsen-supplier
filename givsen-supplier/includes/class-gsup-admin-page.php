@@ -15,7 +15,7 @@ class GSUP_Admin_Page {
 		add_filter( 'woocommerce_screen_ids', array( __CLASS__, 'screen_ids' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ), 20 );
 		add_action( 'admin_notices', array( __CLASS__, 'product_screen_notices' ) );
-		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_eta', 'ae_log_clear', 'ae_log_save' ) as $action ) {
+		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_eta', 'ae_log_clear', 'ae_log_save', 'save_ai' ) as $action ) {
 			add_action( 'admin_post_gsup_' . $action, array( __CLASS__, 'handle_' . $action ) );
 		}
 	}
@@ -62,7 +62,7 @@ class GSUP_Admin_Page {
 			return;
 		}
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'import'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap', 'reports', 'tidy' ), true ) ? $tab : 'import';
+		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap', 'reports', 'tidy', 'ai' ), true ) ? $tab : 'import';
 		echo '<div class="wrap gsup-wrap">';
 		echo '<h1 class="wp-heading-inline">Givsen Supplier</h1>';
 		echo '<nav class="nav-tab-wrapper">';
@@ -74,6 +74,8 @@ class GSUP_Admin_Page {
 			echo '<span class="nav-tab nav-tab-active">Change supplier</span>';
 		} elseif ( 'tidy' === $tab ) {
 			echo '<span class="nav-tab nav-tab-active">Tidy text</span>';
+		} elseif ( 'ai' === $tab ) {
+			echo '<span class="nav-tab nav-tab-active">Rewrite with AI</span>';
 		}
 		echo '<a class="nav-tab' . ( 'settings' === $tab ? ' nav-tab-active' : '' ) . '" href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '">Settings</a>';
 		echo '</nav>';
@@ -82,6 +84,8 @@ class GSUP_Admin_Page {
 			self::render_settings();
 		} elseif ( 'create' === $tab ) {
 			self::render_create();
+		} elseif ( 'ai' === $tab && class_exists( 'GSUP_AI' ) ) {
+			GSUP_AI::render();
 		} elseif ( 'tidy' === $tab && class_exists( 'GSUP_Bulk_Tidy' ) ) {
 			GSUP_Bulk_Tidy::render();
 		} elseif ( 'reports' === $tab && class_exists( 'GSUP_Report' ) ) {
@@ -278,6 +282,7 @@ class GSUP_Admin_Page {
 			'ordering'   => array( 'Ordering & tracking', 'Ordering & tracking', 'Place paid orders on AliExpress automatically and bring tracking back.' ),
 			'pricing'    => array( 'Pricing & profit', 'Pricing, profit & delivery estimate', 'How new products are priced, how margin is worked out, and the delivery estimate customers see.' ),
 			'sync'       => array( 'Daily sync', 'Daily sync', 'Keep stock, costs and delivery fees in step with AliExpress.' ),
+			'ai'         => array( 'AI writing', 'AI writing', 'Rewrite product titles and descriptions in your store’s voice with Claude.' ),
 			'countries'  => array( 'Country restrictions', 'Country restrictions', 'Show each product only in the countries its warehouse serves (CBR).' ),
 			'extension'  => array( 'Chrome extension', 'Chrome extension', 'Connect the Add to Givsen button to this store.' ),
 		);
@@ -327,6 +332,8 @@ class GSUP_Admin_Page {
 				return $connected ? array( 'on', 'On' ) : array( 'warn', 'Needs AliExpress' );
 			case 'countries':
 				return GSUP_CBR::enabled() ? array( 'on', 'On' ) : array( 'off', 'Off' );
+			case 'ai':
+				return class_exists( 'GSUP_AI' ) && GSUP_AI::ready() ? array( 'on', 'Ready' ) : array( 'off', 'No key' );
 			case 'extension':
 				return '' !== (string) get_option( 'gsup_secret' ) ? array( 'on', 'Key ready' ) : array( 'warn', 'No key' );
 		}
@@ -369,6 +376,9 @@ class GSUP_Admin_Page {
 				break;
 			case 'countries':
 				self::render_cbr();
+				break;
+			case 'ai':
+				self::render_ai();
 				break;
 			case 'extension':
 				self::render_extension();
@@ -469,6 +479,7 @@ class GSUP_Admin_Page {
 			'ordering'   => ( GSUP_Orders::enabled() ? 'Paid orders are placed on AliExpress automatically.' : 'Orders are placed by hand from the order screen.' ) . ' ' . $awaiting . ' order(s) waiting for tracking.',
 			'pricing'    => 'Price = cost' . ( $r['shipping'] ? ' + delivery' : '' ) . ' × ' . rtrim( rtrim( number_format( $r['multiplier'], 2 ), '0' ), '.' ) . ( $r['add'] ? ' + ' . wc_format_decimal( $r['add'], 2 ) : '' ) . ( $r['round'] ? ', rounded to .95' : '' ) . '. Low margin below ' . GSUP_Profit::min_margin() . '%.',
 			'sync'       => GSUP_Sync::enabled() ? ( is_array( $last ) ? 'Last run ' . human_time_diff( $last['finished'] ) . ' ago — ' . (int) $last['report']['checked'] . ' products checked.' : 'Runs daily at about 3am. Hasn’t run yet.' ) : 'Off — stock and costs aren’t being updated.',
+			'ai'         => class_exists( 'GSUP_AI' ) && GSUP_AI::ready() ? 'Select products, then Bulk actions → Rewrite with AI.' : 'Add a Claude API key to rewrite titles and descriptions in bulk.',
 			'countries'  => GSUP_CBR::enabled() ? 'New products are restricted to their warehouse’s countries.' : 'Off — products are shown in every country unless you set CBR by hand.',
 			'extension'  => 'Site address and connection key for the Add to Givsen button.',
 		);
@@ -846,6 +857,39 @@ class GSUP_Admin_Page {
 		echo '<label><input type="checkbox" name="business" value="yes"' . checked( $s['business'], true, false ) . '> Count business days only (skip weekends)</label></td></tr>';
 		echo '<tr><th scope="row">Example</th><td>' . esc_html( GSUP_Eta::text( array( 2, 5 ) ) ) . ' <span class="gsup-meta">(for a 2–5 day estimate)</span></td></tr>';
 		echo '</tbody></table><p><button type="submit" class="button button-primary">Save delivery estimate</button></p></form>';
+	}
+
+	private static function render_ai() {
+		$s      = GSUP_AI::settings();
+		$has    = GSUP_AI::ready();
+		$admin  = current_user_can( 'manage_options' );
+		echo '<p>Select products in <a href="' . esc_url( admin_url( 'edit.php?post_type=product' ) ) . '">Products → All Products</a>, then <strong>Bulk actions → Rewrite with AI</strong> (or the <em>Rewrite with AI</em> link under a product). You see old and new side by side, edit anything, and apply only what you tick — with undo.</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form"><input type="hidden" name="action" value="gsup_save_ai">';
+		wp_nonce_field( 'gsup_save_ai' );
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row"><label for="gsup_ai_key">Claude API key</label></th><td>';
+		if ( $admin ) {
+			echo '<input type="password" id="gsup_ai_key" name="key" class="regular-text" autocomplete="new-password" placeholder="' . esc_attr( $has ? 'Saved — leave blank to keep' : 'sk-ant-…' ) . '">';
+			if ( $has ) {
+				echo ' <label><input type="checkbox" name="remove_key" value="1"> Remove</label>';
+			}
+		} else {
+			echo esc_html( $has ? 'Saved.' : 'Not set.' ) . ' <span class="gsup-meta">Only an administrator can change it.</span>';
+		}
+		echo '<p class="description">Create one in the <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Claude Console</a> (add a little credit — a few dollars rewrites hundreds of products). Stored on your site only.</p></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_ai_model">Model</label></th><td><select id="gsup_ai_model" name="model">';
+		foreach ( GSUP_AI::models() as $id => $m ) {
+			echo '<option value="' . esc_attr( $id ) . '"' . selected( GSUP_AI::model(), $id, false ) . '>' . esc_html( $m[0] ) . '</option>';
+		}
+		echo '</select></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_ai_voice">Your store’s voice</label></th><td><textarea id="gsup_ai_voice" name="voice" rows="3" class="large-text">' . esc_textarea( $s['voice'] ) . '</textarea><p class="description">How your copy should sound. A sentence or two is plenty.</p></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_ai_extra">Anything else</label></th><td><textarea id="gsup_ai_extra" name="extra" rows="3" class="large-text">' . esc_textarea( $s['extra'] ) . '</textarea><p class="description">e.g. “Mention it arrives gift-ready.” “Never use the word luxury.” Claude is always told to use only facts on the product and never mention where it’s sourced.</p></td></tr>';
+		echo '<tr><th scope="row">Titles</th><td>At most <input type="number" name="title_max" min="30" max="150" class="small-text" value="' . esc_attr( $s['title_max'] ) . '"> characters · Spelling <select name="english">';
+		foreach ( array( 'Australian', 'British', 'American' ) as $e ) {
+			echo '<option' . selected( $s['english'], $e, false ) . '>' . esc_html( $e ) . '</option>';
+		}
+		echo '</select> English</td></tr>';
+		echo '</tbody></table><p><button type="submit" class="button button-primary">Save AI writing</button></p></form>';
 	}
 
 	private static function render_profit() {
@@ -1500,6 +1544,32 @@ class GSUP_Admin_Page {
 		}
 		gsup_flash( 'Saved.' );
 		wp_safe_redirect( gsup_settings_url( 'aliexpress' ) . '#gsup-ae-log' );
+		exit;
+	}
+
+	public static function handle_save_ai() {
+		self::guard( 'gsup_save_ai' );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
+		if ( current_user_can( 'manage_options' ) ) {
+			$key = isset( $_POST['key'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['key'] ) ) ) : '';
+			if ( ! empty( $_POST['remove_key'] ) ) {
+				delete_option( 'gsup_ai_key' );
+			} elseif ( '' !== $key ) {
+				update_option( 'gsup_ai_key', $key, false );
+			}
+		}
+		$model = isset( $_POST['model'] ) ? sanitize_text_field( wp_unslash( $_POST['model'] ) ) : '';
+		if ( isset( GSUP_AI::models()[ $model ] ) ) {
+			update_option( 'gsup_ai_model', $model, false );
+		}
+		update_option( 'gsup_ai_voice', isset( $_POST['voice'] ) ? mb_substr( sanitize_textarea_field( wp_unslash( $_POST['voice'] ) ), 0, 600 ) : '', false );
+		update_option( 'gsup_ai_extra', isset( $_POST['extra'] ) ? mb_substr( sanitize_textarea_field( wp_unslash( $_POST['extra'] ) ), 0, 1000 ) : '', false );
+		update_option( 'gsup_ai_title_max', max( 30, min( 150, isset( $_POST['title_max'] ) ? (int) $_POST['title_max'] : 70 ) ), false );
+		$eng = isset( $_POST['english'] ) ? sanitize_text_field( wp_unslash( $_POST['english'] ) ) : 'Australian';
+		update_option( 'gsup_ai_english', in_array( $eng, array( 'Australian', 'British', 'American' ), true ) ? $eng : 'Australian', false );
+		// phpcs:enable
+		gsup_flash( 'AI writing saved.' );
+		wp_safe_redirect( gsup_settings_url( 'ai' ) );
 		exit;
 	}
 

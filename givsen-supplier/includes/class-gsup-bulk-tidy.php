@@ -274,7 +274,7 @@ class GSUP_Bulk_Tidy {
 			wc_delete_product_transients( $id );
 			++$done;
 		}
-		gsup_flash( 'Tidied ' . (int) $done . ' product(s). Each one can be put back with “Undo tidy-up” on its Supplier tab.' );
+		gsup_flash( 'Tidied ' . (int) $done . ' product(s). Each one can be put back with “Undo text changes” on its Supplier tab.' );
 		wp_safe_redirect( admin_url( 'edit.php?post_type=product' ) );
 		exit;
 	}
@@ -291,7 +291,8 @@ class GSUP_Bulk_Tidy {
 
 	/* ---------------------------------------------------------------- undo */
 
-	private static function save_undo( WC_Product $product ) {
+	/** Save the product's text and options so "Undo text changes" can put them back (tidy-up and AI rewrites). */
+	public static function save_undo( WC_Product $product ) {
 		$vars = array();
 		if ( $product->is_type( 'variable' ) ) {
 			foreach ( $product->get_children() as $vid ) {
@@ -311,6 +312,7 @@ class GSUP_Bulk_Tidy {
 				'at'          => time(),
 				'title'       => $product->get_name(),
 				'description' => $product->get_description(),
+				'short'       => $product->get_short_description(),
 				'attributes'  => get_post_meta( $product->get_id(), '_product_attributes', true ),
 				'variations'  => $vars,
 			)
@@ -334,6 +336,7 @@ class GSUP_Bulk_Tidy {
 					'ID'           => $id,
 					'post_title'   => $u['title'],
 					'post_content' => $u['description'],
+					'post_excerpt' => isset( $u['short'] ) ? $u['short'] : get_post_field( 'post_excerpt', $id ),
 				)
 			);
 			update_post_meta( $id, '_product_attributes', $u['attributes'] );
@@ -354,7 +357,7 @@ class GSUP_Bulk_Tidy {
 			}
 			wc_delete_product_transients( $id );
 			clean_post_cache( $id );
-			gsup_flash( 'Tidy-up undone: title, description and options are back as they were.' );
+			gsup_flash( 'Undone: title, descriptions and options are back as they were.' );
 		}
 		wp_safe_redirect( admin_url( 'post.php?post=' . $id . '&action=edit' ) );
 		exit;

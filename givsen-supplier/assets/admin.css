@@ -172,3 +172,11 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 .gsup-report td:first-child, .gsup-report th:first-child { text-align: left; }
 .gsup-report-current td { background: #f0f6fc; }
 .gsup-report tfoot th { font-weight: 600; }
+
+/* Rewrite with AI */
+.gsup-ai-item { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 10px 14px; margin: 0 0 10px; max-width: 1200px; }
+.gsup-ai-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.gsup-ai-cols { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; margin-top: 8px; }
+.gsup-ai-old-desc { color: #50575e; font-size: 12px; max-height: 190px; overflow: auto; }
+.gsup-ai-new input, .gsup-ai-new textarea { margin-bottom: 6px; }
+@media (max-width: 960px) { .gsup-ai-cols { grid-template-columns: 1fr; } }

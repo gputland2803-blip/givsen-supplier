@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.9.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.10.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -148,6 +148,9 @@ Bulk action `gsup_tidy` → `tab=tidy&ids=` (max 50). Options: titles (editable)
 
 ## Add to store: what to bring
 Per-user `gsup_import_prefs`: description `text` (`GSUP_Tidy::description_text()` — p/ul/ol/li/strong/em only, table rows "Name: value", boilerplate removed) / `clean` (`GSUP_Tidy::description()` + `GSUP_Creator::localize_images()`, max 15) / `empty`; `photos` 0–10 (default 10); `option_photos`; `desc_photos` (description images from AliExpress hosts, no GIFs, not already among the listing photos, max 8, appended to the gallery; not with `clean`); `specs`; `short`. Boilerplate: `GSUP_Tidy::is_boilerplate()` (filter `gsup_tidy_boilerplate`).
+
+## Rewrite with AI
+`GSUP_AI`: bulk action `gsup_ai` and row link → `tab=ai&ids=` (max 50). Browser calls `wp_ajax_gsup_ai_rewrite` per product (nonce, `edit_product`), two at a time. Request: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key` (option `gsup_ai_key`, admin-only), `anthropic-version: 2023-06-01`; model `gsup_ai_model` (`claude-haiku-4-5` default, `claude-sonnet-5`); `max_tokens` 2000; system prompt built from voice/extra/title length/spelling with fixed rules (facts only, keep specs, never mention sourcing/shipping/reviews, HTML limits); user message = JSON of current title, description text, short description, attributes, categories; `output_config.format` json_schema {title, description_html, short_description}, additionalProperties false. Handles refusal, max_tokens, 401/429/529/credit errors. Output: title `sanitize_text_field`, description `wp_kses` p/ul/li/strong, short plain text. Apply (`gsup_ai_apply`, `edit_products` + per-product `edit_product`) saves `_gsup_tidy_undo` (now with short description) first. No prompt caching: the prompt is below Haiku 4.5's minimum cacheable length.
 
 ## Delivery estimate
 `_gsup_ship_days` "min-max" on products/variations (freight quote). `GSUP_Eta` (off by default, `gsup_eta_show`): `woocommerce_single_product_summary` at 15 and `woocommerce_available_variation` (added to availability_html). Days + `gsup_eta_processing` (1); `gsup_eta_format` dates/days; `gsup_eta_business` skips weekends. Filter `gsup_eta_text`. Hidden when out of stock or no estimate.

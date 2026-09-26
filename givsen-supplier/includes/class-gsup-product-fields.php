@@ -63,7 +63,7 @@ class GSUP_Product_Fields {
 
 		$undo = get_post_meta( $id, '_gsup_tidy_undo', true );
 		if ( is_array( $undo ) && class_exists( 'GSUP_Bulk_Tidy' ) ) {
-			echo '<p class="form-field"><label>&nbsp;</label><span class="gsup-meta">Text tidied ' . esc_html( wp_date( 'j M Y', (int) $undo['at'] ) ) . '. <a href="' . esc_url( GSUP_Bulk_Tidy::undo_url( $id ) ) . '" data-gsup-confirm="Put the title, description and options back as they were before the tidy-up?">Undo tidy-up</a></span></p>';
+			echo '<p class="form-field"><label>&nbsp;</label><span class="gsup-meta">Text changed by tidy-up or AI on ' . esc_html( wp_date( 'j M Y', (int) $undo['at'] ) ) . '. <a href="' . esc_url( GSUP_Bulk_Tidy::undo_url( $id ) ) . '" data-gsup-confirm="Put the title, descriptions and options back as they were before?">Undo text changes</a></span></p>';
 		}
 		echo '<div class="options_group show_if_simple">';
 		woocommerce_wp_text_input(
