@@ -62,7 +62,7 @@ class GSUP_Admin_Page {
 			return;
 		}
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'import'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap', 'reports' ), true ) ? $tab : 'import';
+		$tab = in_array( $tab, array( 'import', 'settings', 'create', 'remap', 'reports', 'tidy' ), true ) ? $tab : 'import';
 		echo '<div class="wrap gsup-wrap">';
 		echo '<h1 class="wp-heading-inline">Givsen Supplier</h1>';
 		echo '<nav class="nav-tab-wrapper">';
@@ -72,6 +72,8 @@ class GSUP_Admin_Page {
 			echo '<span class="nav-tab nav-tab-active">Add to store</span>';
 		} elseif ( 'remap' === $tab ) {
 			echo '<span class="nav-tab nav-tab-active">Change supplier</span>';
+		} elseif ( 'tidy' === $tab ) {
+			echo '<span class="nav-tab nav-tab-active">Tidy text</span>';
 		}
 		echo '<a class="nav-tab' . ( 'settings' === $tab ? ' nav-tab-active' : '' ) . '" href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '">Settings</a>';
 		echo '</nav>';
@@ -80,6 +82,8 @@ class GSUP_Admin_Page {
 			self::render_settings();
 		} elseif ( 'create' === $tab ) {
 			self::render_create();
+		} elseif ( 'tidy' === $tab && class_exists( 'GSUP_Bulk_Tidy' ) ) {
+			GSUP_Bulk_Tidy::render();
 		} elseif ( 'reports' === $tab && class_exists( 'GSUP_Report' ) ) {
 			GSUP_Report::render();
 		} elseif ( 'remap' === $tab && class_exists( 'GSUP_Remap' ) ) {
