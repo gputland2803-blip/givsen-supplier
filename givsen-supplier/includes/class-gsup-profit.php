@@ -15,7 +15,8 @@ defined( 'ABSPATH' ) || exit;
 
 class GSUP_Profit {
 
-	const M_LOW = '_gsup_low_margin'; // 'yes' on the product while any option is below the minimum margin.
+	const M_LOW     = '_gsup_low_margin'; // 'yes' on the product while any option is below the minimum margin.
+	const M_SUMMARY = '_gsup_margin';     // Stored product_summary(), so lists don't load every variation.
 
 	/** Set while the sync or "Add to store" saves many variations; they refresh the flag once at the end. */
 	public static $paused = false;
@@ -124,12 +125,37 @@ class GSUP_Profit {
 	public static function refresh_flag( $product_id ) {
 		$s   = self::product_summary( wc_get_product( $product_id ) );
 		$low = $s && $s['low'];
+		if ( $s ) {
+			update_post_meta( $product_id, self::M_SUMMARY, $s );
+		} else {
+			delete_post_meta( $product_id, self::M_SUMMARY );
+		}
 		if ( $low ) {
 			update_post_meta( $product_id, self::M_LOW, 'yes' );
 		} else {
 			delete_post_meta( $product_id, self::M_LOW );
 		}
 		return $low;
+	}
+
+	/**
+	 * Margin summary for lists: the stored one (kept up to date on every save and sync), worked out and stored
+	 * the first time it's missing. "low" always follows the current minimum.
+	 */
+	public static function cached_summary( WC_Product $product ) {
+		$s = get_post_meta( $product->get_id(), self::M_SUMMARY, true );
+		if ( ! is_array( $s ) || ! isset( $s['margin_min'] ) ) {
+			if ( '' === (string) get_post_meta( $product->get_id(), GSUP_META_PRODUCT, true ) ) {
+				return self::product_summary( $product );
+			}
+			self::refresh_flag( $product->get_id() );
+			$s = get_post_meta( $product->get_id(), self::M_SUMMARY, true );
+			if ( ! is_array( $s ) ) {
+				return null;
+			}
+		}
+		$s['low'] = $s['margin_min'] * 100 < self::min_margin();
+		return $s;
 	}
 
 	public static function on_product_save( $product_id ) {
@@ -276,6 +302,26 @@ class GSUP_Profit {
 		return $out;
 	}
 
+	/** Order profit for the orders list: stored on the order until the order next changes. */
+	public static function cached_order_summary( WC_Order $order ) {
+		$modified = $order->get_date_modified();
+		$stamp    = ( $modified ? $modified->getTimestamp() : 0 ) . '|' . self::min_margin() . '|' . get_option( 'gsup_fee_percent', 0 ) . '|' . get_option( 'gsup_fee_fixed', 0 );
+		$cached   = $order->get_meta( '_gsup_profit_cache' );
+		if ( is_array( $cached ) && isset( $cached['stamp'] ) && $cached['stamp'] === $stamp ) {
+			return $cached['summary'];
+		}
+		$s = self::order_summary( $order );
+		$order->update_meta_data(
+			'_gsup_profit_cache',
+			array(
+				'stamp'   => $stamp,
+				'summary' => $s,
+			)
+		);
+		$order->save_meta_data(); // Meta only: doesn't change the order's modified date.
+		return $s;
+	}
+
 	public static function order_column( $column, $order ) {
 		if ( 'gsup_profit' !== $column ) {
 			return;
@@ -284,7 +330,7 @@ class GSUP_Profit {
 		if ( ! $order ) {
 			return;
 		}
-		$s = self::order_summary( $order );
+		$s = self::cached_order_summary( $order );
 		if ( ! $s || count( $s['lines'] ) === $s['unknown'] ) {
 			echo '<span class="gsup-meta">—</span>';
 			return;

@@ -18,7 +18,7 @@ defined( 'ABSPATH' ) || exit;
 class GSUP_Sync {
 
 	const GROUP      = 'givsen-supplier';
-	const BATCH      = 15;
+	const BATCH      = 25; // Fetched a few at a time in parallel (see GSUP_AliExpress::parallel()).
 	const OPT_RUN    = 'gsup_sync_run';
 	const OPT_LAST   = 'gsup_sync_last';
 	const M_STATUS   = '_gsup_sync_status';   // '', 'missing', 'removed'
@@ -26,11 +26,11 @@ class GSUP_Sync {
 	const M_SYNCED   = '_gsup_synced_at';
 	const M_DRAFTED  = '_gsup_drafted_by_sync';
 	const M_GONE     = '_gsup_option_gone';
+	const M_QUOTED   = '_gsup_ship_quoted';     // When the delivery fee was last asked for (quotes refresh weekly).
 
 	public static function init() {
 		add_action( 'gsup_sync_start', array( __CLASS__, 'start' ) );
 		add_action( 'gsup_sync_batch', array( __CLASS__, 'batch' ) );
-		add_action( 'init', array( __CLASS__, 'schedule' ), 20 );
 	}
 
 	public static function enabled() {
@@ -142,8 +142,8 @@ class GSUP_Sync {
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
-		$cache = array();
 		$end   = min( count( $run['ids'] ), $run['pos'] + self::BATCH );
+		$cache = self::prefetch( array_slice( $run['ids'], $run['pos'], $end - $run['pos'] ) );
 		for ( $i = $run['pos']; $i < $end; $i++ ) {
 			$result = self::sync_product( $run['ids'][ $i ], $run['report'], $cache );
 			if ( 'stop' === $result ) {
@@ -161,6 +161,77 @@ class GSUP_Sync {
 		}
 		update_option( self::OPT_RUN, $run, false );
 		as_enqueue_async_action( 'gsup_sync_batch', array(), self::GROUP );
+	}
+
+	/**
+	 * Ask AliExpress about a whole batch at once (a few calls in flight at a time) instead of one by one:
+	 * first the listings, then delivery quotes for the products whose quote is due.
+	 *
+	 * @return array Cache in the shape sync_product() reads.
+	 */
+	private static function prefetch( array $ids ) {
+		if ( $ids ) {
+			update_meta_cache( 'post', $ids );
+		}
+		$pairs = array();
+		$ships = array();
+		foreach ( $ids as $id ) {
+			$product = wc_get_product( $id );
+			$ae_pid  = (string) get_post_meta( $id, GSUP_META_PRODUCT, true );
+			if ( ! $product || '' === $ae_pid ) {
+				continue;
+			}
+			if ( $product->is_type( 'variable' ) && $product->get_children() ) {
+				update_meta_cache( 'post', $product->get_children() );
+			}
+			$ships[ $id ]               = self::ship_to_for( $product );
+			$pairs[ $ae_pid . '|' . $ships[ $id ] ] = array( $ae_pid, $ships[ $id ] );
+		}
+		$cache = $pairs ? GSUP_AliExpress::get_products( array_values( $pairs ) ) : array();
+
+		$specs = array();
+		foreach ( $ships as $id => $ship_to ) {
+			$key = (string) get_post_meta( $id, GSUP_META_PRODUCT, true ) . '|' . $ship_to;
+			if ( empty( $cache[ $key ] ) || is_wp_error( $cache[ $key ] ) || ! self::quote_due( $id ) ) {
+				continue;
+			}
+			$product = wc_get_product( $id );
+			$sku_id  = self::quote_sku( $cache[ $key ], $product->is_type( 'variable' ) ? $product->get_children() : array( $id ) );
+			if ( '' !== $sku_id ) {
+				$specs[ 'freight|' . $key ] = array( $cache[ $key ]['product_id'], $sku_id, $ship_to );
+			}
+		}
+		foreach ( $specs ? GSUP_AliExpress::freights( $specs ) : array() as $fkey => $options ) {
+			$cache[ $fkey ] = is_wp_error( $options ) ? null : GSUP_AliExpress::choose_freight( $options );
+		}
+		return $cache;
+	}
+
+	/** Delivery fees change rarely: ask again after a week, or sooner if an option has none yet. */
+	private static function quote_due( $product_id ) {
+		$days   = max( 1, (int) apply_filters( 'gsup_ship_quote_days', 7 ) );
+		$quoted = (int) get_post_meta( $product_id, self::M_QUOTED, true );
+		if ( ! $quoted || $quoted < time() - $days * DAY_IN_SECONDS ) {
+			return true;
+		}
+		$product = wc_get_product( $product_id );
+		foreach ( ( $product && $product->is_type( 'variable' ) ) ? $product->get_children() : array( $product_id ) as $id ) {
+			if ( '' === get_post_meta( $id, GSUP_META_SHIP_COST, true ) && '' !== get_post_meta( $id, GSUP_META_COST, true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Which option to ask the delivery fee for: the first linked one still on the listing. */
+	private static function quote_sku( array $ae, array $targets ) {
+		foreach ( $targets as $id ) {
+			$sku_id = (string) get_post_meta( $id, GSUP_META_SKU, true );
+			if ( '' !== $sku_id && GSUP_AliExpress::find_sku( $ae, $sku_id ) ) {
+				return $sku_id;
+			}
+		}
+		return $ae['skus'] ? (string) $ae['skus'][0]['sku_id'] : '';
 	}
 
 	/** Which delivery country to ask AliExpress about, from where the product ships. */
@@ -226,7 +297,7 @@ class GSUP_Sync {
 		delete_post_meta( $product_id, self::M_STATUS );
 
 		$targets = $product->is_type( 'variable' ) ? $product->get_children() : array( $product_id );
-		$freight = self::freight_for( $ae, $targets, $ship_to, $cache );
+		$freight = self::freight_for( $ae, $targets, $ship_to, $cache, $product_id );
 		$rose    = false;
 		GSUP_Profit::$paused = true;
 		foreach ( $targets as $target_id ) {
@@ -318,25 +389,21 @@ class GSUP_Sync {
 	 * Delivery quote for a product, asked once per AliExpress product and country per batch.
 	 * A failed quote just leaves the stored delivery fee as it was.
 	 */
-	private static function freight_for( array $ae, array $targets, $ship_to, array &$cache ) {
-		$sku_id = '';
-		foreach ( $targets as $id ) {
-			$sku_id = (string) get_post_meta( $id, GSUP_META_SKU, true );
-			if ( '' !== $sku_id && GSUP_AliExpress::find_sku( $ae, $sku_id ) ) {
-				break;
-			}
-			$sku_id = '';
-		}
-		if ( '' === $sku_id && $ae['skus'] ) {
-			$sku_id = $ae['skus'][0]['sku_id'];
-		}
-		if ( '' === $sku_id ) {
-			return null;
-		}
+	private static function freight_for( array $ae, array $targets, $ship_to, array &$cache, $product_id = 0 ) {
 		$key = 'freight|' . $ae['product_id'] . '|' . $ship_to;
 		if ( ! array_key_exists( $key, $cache ) ) {
+			if ( $product_id && ! self::quote_due( $product_id ) ) {
+				return null; // Not due: keep the stored fee.
+			}
+			$sku_id = self::quote_sku( $ae, $targets );
+			if ( '' === $sku_id ) {
+				return null;
+			}
 			$options       = GSUP_AliExpress::freight( $ae['product_id'], $sku_id, $ship_to );
 			$cache[ $key ] = is_wp_error( $options ) ? null : GSUP_AliExpress::choose_freight( $options );
+		}
+		if ( $cache[ $key ] && $product_id ) {
+			update_post_meta( $product_id, self::M_QUOTED, time() );
 		}
 		return $cache[ $key ];
 	}

@@ -13,7 +13,7 @@ class GSUP_Install {
 		if ( ! get_option( 'gsup_secret' ) ) {
 			update_option( 'gsup_secret', self::new_secret(), false );
 		}
-		update_option( 'gsup_db_version', GSUP_DB_VERSION, false );
+		update_option( 'gsup_db_version', GSUP_DB_VERSION, true );
 	}
 
 	/** Runs on every load so replacing the plugin files (no re-activation) still upgrades the table. */

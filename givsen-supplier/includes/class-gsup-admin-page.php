@@ -118,6 +118,11 @@ class GSUP_Admin_Page {
 			echo '<tr><td colspan="6" class="gsup-empty">' . wp_kses_post( $empty ) . '</td></tr>';
 		}
 
+		$pairs = array();
+		foreach ( $rows as $row ) {
+			$pairs[] = array( $row['ae_product_id'], $row['ae_sku_id'] );
+		}
+		gsup_prime_links( $pairs );
 		foreach ( $rows as $row ) {
 			self::render_row( $row, $status );
 		}
@@ -391,19 +396,21 @@ class GSUP_Admin_Page {
 				$todo[] = array( 'Order #' . $order->get_order_number() . ' has items that couldn’t be placed on AliExpress automatically.', $order->get_edit_order_url(), 'Open order' );
 			}
 		}
-		$low = get_posts(
+		$low = ( new WP_Query(
 			array(
-				'post_type'        => 'product',
-				'post_status'      => array( 'publish', 'draft', 'pending', 'private' ),
-				'numberposts'      => -1,
-				'fields'           => 'ids',
-				'meta_key'         => GSUP_Profit::M_LOW, // phpcs:ignore WordPress.DB.SlowDBQuery
-				'meta_value'       => 'yes', // phpcs:ignore WordPress.DB.SlowDBQuery
-				'suppress_filters' => true,
+				'post_type'              => 'product',
+				'post_status'            => array( 'publish', 'draft', 'pending', 'private' ),
+				'posts_per_page'         => 1,
+				'fields'                 => 'ids',
+				'meta_key'               => GSUP_Profit::M_LOW, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'meta_value'             => 'yes', // phpcs:ignore WordPress.DB.SlowDBQuery
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'suppress_filters'       => true,
 			)
-		);
+		) )->found_posts;
 		if ( $low ) {
-			$todo[] = array( count( $low ) . ' product(s) with a margin below ' . GSUP_Profit::min_margin() . '%.', admin_url( 'edit.php?post_type=product&gsup_link=low' ), 'Show them' );
+			$todo[] = array( (int) $low . ' product(s) with a margin below ' . GSUP_Profit::min_margin() . '%.', admin_url( 'edit.php?post_type=product&gsup_link=low' ), 'Show them' );
 		}
 		$last = get_option( GSUP_Sync::OPT_LAST );
 		if ( is_array( $last ) && ! empty( $last['report']['errors'] ) ) {
@@ -422,17 +429,16 @@ class GSUP_Admin_Page {
 		}
 
 		// One card per area.
-		$awaiting = function_exists( 'wc_get_orders' ) ? count(
-			wc_get_orders(
-				array(
-					'limit'      => -1,
-					'return'     => 'ids',
-					'status'     => array_keys( wc_get_order_statuses() ),
-					'meta_key'   => GSUP_Orders::M_AWAITING, // phpcs:ignore WordPress.DB.SlowDBQuery
-					'meta_value' => 'yes', // phpcs:ignore WordPress.DB.SlowDBQuery
-				)
+		$awaiting = function_exists( 'wc_get_orders' ) ? (int) wc_get_orders(
+			array(
+				'limit'      => 1,
+				'paginate'   => true,
+				'return'     => 'ids',
+				'status'     => array_keys( wc_get_order_statuses() ),
+				'meta_key'   => GSUP_Orders::M_AWAITING, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'meta_value' => 'yes', // phpcs:ignore WordPress.DB.SlowDBQuery
 			)
-		) : 0;
+		)->total : 0;
 		$token = GSUP_AliExpress::token();
 		$r     = GSUP_Creator::rule();
 		$cards = array(
@@ -515,6 +521,11 @@ class GSUP_Admin_Page {
 		if ( ! isset( $groups[ $want ] ) ) {
 			$want = (string) array_key_first( $groups );
 		}
+		$pairs = array( array( $product['product_id'], '' ) );
+		foreach ( $product['skus'] as $sku ) {
+			$pairs[] = array( $product['product_id'], $sku['sku_id'] );
+		}
+		gsup_prime_links( $pairs );
 		$existing = gsup_find_linked( $product['product_id'] );
 
 		echo '<div class="gsup-test-result">';
@@ -1108,6 +1119,7 @@ class GSUP_Admin_Page {
 		// phpcs:enable
 		update_option( 'gsup_sync_email', is_email( $email ) ? $email : get_option( 'admin_email' ), false );
 		GSUP_Sync::schedule();
+		delete_transient( 'gsup_schedules_ok' );
 		gsup_flash( 'Sync settings saved.' );
 		wp_safe_redirect( gsup_settings_url( 'sync' ) );
 		exit;

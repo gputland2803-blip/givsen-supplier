@@ -64,11 +64,11 @@ class GSUP_AliExpress {
 	}
 
 	/**
-	 * Call an API. $api is a method name (aliexpress.ds.product.get) or a REST path (/auth/token/create).
+	 * The signed URL for a call.
 	 *
-	 * @return array|WP_Error Decoded response (large IDs kept as strings).
+	 * @return string|WP_Error
 	 */
-	public static function request( $api, array $params = array(), $with_session = true ) {
+	private static function build_url( $api, array $params, $with_session ) {
 		if ( ! self::has_app() ) {
 			return new WP_Error( 'gsup_ae_no_app', 'Add your AliExpress App Key and App Secret in WooCommerce → Givsen Supplier → Settings.' );
 		}
@@ -97,8 +97,19 @@ class GSUP_AliExpress {
 		}
 		$all['sign'] = self::sign( self::app_secret(), $api, $all );
 		ksort( $all, SORT_STRING );
+		return self::gateway() . ( $is_rest ? '/rest' . $api : '/sync' ) . '?' . http_build_query( $all, '', '&', PHP_QUERY_RFC3986 );
+	}
 
-		$url      = self::gateway() . ( $is_rest ? '/rest' . $api : '/sync' ) . '?' . http_build_query( $all, '', '&', PHP_QUERY_RFC3986 );
+	/**
+	 * Call an API. $api is a method name (aliexpress.ds.product.get) or a REST path (/auth/token/create).
+	 *
+	 * @return array|WP_Error Decoded response (large IDs kept as strings).
+	 */
+	public static function request( $api, array $params = array(), $with_session = true ) {
+		$url = self::build_url( $api, $params, $with_session );
+		if ( is_wp_error( $url ) ) {
+			return $url;
+		}
 		$response = wp_remote_post(
 			$url,
 			array(
@@ -109,8 +120,83 @@ class GSUP_AliExpress {
 		if ( is_wp_error( $response ) ) {
 			return new WP_Error( 'gsup_ae_network', 'Couldn’t reach AliExpress: ' . $response->get_error_message() );
 		}
-		$code = wp_remote_retrieve_response_code( $response );
-		$data = json_decode( wp_remote_retrieve_body( $response ), true, 512, JSON_BIGINT_AS_STRING );
+		return self::decode( 0 === strpos( $api, '/' ), wp_remote_retrieve_response_code( $response ), wp_remote_retrieve_body( $response ) );
+	}
+
+	/** How many AliExpress calls to make at once in background jobs (filter gsup_ae_parallel; 1 = one at a time). */
+	public static function parallel() {
+		return max( 1, min( 10, (int) apply_filters( 'gsup_ae_parallel', 5 ) ) );
+	}
+
+	/**
+	 * Several API method calls at once (a few in flight at a time), for background jobs.
+	 * Falls back to one at a time when parallel requests aren't available.
+	 *
+	 * @param array<string,array{0:string,1:array}> $calls key => [method, params]
+	 * @return array<string,array|WP_Error> key => decoded response or error
+	 */
+	public static function request_many( array $calls ) {
+		$out   = array();
+		$multi = class_exists( '\WpOrg\Requests\Requests' ) ? '\WpOrg\Requests\Requests' : ( class_exists( 'Requests' ) ? 'Requests' : '' );
+		if ( '' === $multi || self::parallel() < 2 || count( $calls ) < 2 ) {
+			foreach ( $calls as $key => $call ) {
+				$out[ $key ] = self::request( $call[0], $call[1] );
+			}
+			return $out;
+		}
+		$options = array(
+			'timeout'         => 25,
+			'connect_timeout' => 10,
+			'verify'          => ABSPATH . WPINC . '/certificates/ca-bundle.crt',
+			'useragent'       => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . home_url( '/' ),
+		);
+		if ( class_exists( 'WP_HTTP_Proxy' ) ) {
+			$proxy = new WP_HTTP_Proxy();
+			if ( $proxy->is_enabled() && $proxy->send_through_proxy( self::gateway() ) ) {
+				$options['proxy'] = $proxy->use_authentication()
+					? array( $proxy->host() . ':' . $proxy->port(), $proxy->username(), $proxy->password() )
+					: $proxy->host() . ':' . $proxy->port();
+			}
+		}
+		foreach ( array_chunk( $calls, self::parallel(), true ) as $chunk ) {
+			$requests = array();
+			foreach ( $chunk as $key => $call ) {
+				$url = self::build_url( $call[0], $call[1], true );
+				if ( is_wp_error( $url ) ) {
+					$out[ $key ] = $url;
+					continue;
+				}
+				$requests[ $key ] = array(
+					'url'     => $url,
+					'type'    => 'POST',
+					'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded;charset=utf-8' ),
+					'data'    => array(),
+				);
+			}
+			if ( ! $requests ) {
+				continue;
+			}
+			try {
+				$responses = call_user_func( array( $multi, 'request_multiple' ), $requests, $options );
+			} catch ( Exception $e ) {
+				$responses = array();
+			}
+			foreach ( $requests as $key => $unused ) {
+				$r = isset( $responses[ $key ] ) ? $responses[ $key ] : null;
+				if ( is_object( $r ) && isset( $r->body ) && isset( $r->status_code ) ) {
+					$out[ $key ] = self::decode( false, (int) $r->status_code, (string) $r->body );
+				} else {
+					$msg         = $r instanceof Exception ? $r->getMessage() : 'no reply';
+					$out[ $key ] = new WP_Error( 'gsup_ae_network', 'Couldn’t reach AliExpress: ' . $msg );
+				}
+			}
+		}
+		return $out;
+	}
+
+	/** Turn a reply into data, or the error AliExpress reported. */
+	private static function decode( $is_rest, $code, $body ) {
+		$data = json_decode( (string) $body, true, 512, JSON_BIGINT_AS_STRING );
 		if ( ! is_array( $data ) ) {
 			return new WP_Error( 'gsup_ae_bad_response', 'AliExpress sent an unreadable reply (HTTP ' . (int) $code . ').' );
 		}
@@ -314,15 +400,42 @@ class GSUP_AliExpress {
 			return new WP_Error( 'gsup_ae_bad_id', 'That isn’t an AliExpress product ID.' );
 		}
 		$ship_to = $ship_to ? strtoupper( $ship_to ) : self::default_ship_to();
-		$data    = self::request(
-			'aliexpress.ds.product.get',
-			array(
-				'product_id'      => $ae_product_id,
-				'ship_to_country' => $ship_to,
-				'target_currency' => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD',
-				'target_language' => 'EN',
-			)
+		return self::parse_product( self::request( 'aliexpress.ds.product.get', self::product_params( $ae_product_id, $ship_to ) ), $ae_product_id, $ship_to );
+	}
+
+	/**
+	 * Several products at once (background sync).
+	 *
+	 * @param array<int,array{0:string,1:string}> $pairs [ae product ID, ship-to country]
+	 * @return array<string,array|WP_Error> "id|country" => product or error
+	 */
+	public static function get_products( array $pairs ) {
+		$calls = array();
+		foreach ( $pairs as $pair ) {
+			$id   = gsup_parse_product_id( $pair[0] );
+			$ship = strtoupper( $pair[1] ? $pair[1] : self::default_ship_to() );
+			if ( '' !== $id ) {
+				$calls[ $id . '|' . $ship ] = array( 'aliexpress.ds.product.get', self::product_params( $id, $ship ) );
+			}
+		}
+		$out = array();
+		foreach ( self::request_many( $calls ) as $key => $data ) {
+			list( $id, $ship ) = explode( '|', $key );
+			$out[ $key ]       = self::parse_product( $data, $id, $ship );
+		}
+		return $out;
+	}
+
+	private static function product_params( $ae_product_id, $ship_to ) {
+		return array(
+			'product_id'      => $ae_product_id,
+			'ship_to_country' => $ship_to,
+			'target_currency' => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD',
+			'target_language' => 'EN',
 		);
+	}
+
+	private static function parse_product( $data, $ae_product_id, $ship_to ) {
 		if ( is_wp_error( $data ) ) {
 			return $data;
 		}
@@ -479,24 +592,47 @@ class GSUP_AliExpress {
 	 * @return array|WP_Error [{code, name, fee, currency, min_days, max_days, tracked}]
 	 */
 	public static function freight( $ae_product_id, $sku_id, $ship_to, $qty = 1 ) {
-		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD';
-		$ship_to  = strtoupper( (string) $ship_to );
-		$data     = self::request(
-			'aliexpress.ds.freight.query',
-			array(
-				'queryDeliveryReq' => wp_json_encode(
-					array(
-						'quantity'      => max( 1, (int) $qty ),
-						'shipToCountry' => $ship_to,
-						'productId'     => (string) $ae_product_id,
-						'selectedSkuId' => (string) $sku_id,
-						'language'      => 'en_US',
-						'currency'      => $currency,
-						'locale'        => 'en_US',
-					)
-				),
-			)
+		$ship_to = strtoupper( (string) $ship_to );
+		return self::parse_freight( self::request( 'aliexpress.ds.freight.query', self::freight_params( $ae_product_id, $sku_id, $ship_to, $qty ) ), $ae_product_id, $sku_id, $ship_to, $qty );
+	}
+
+	/**
+	 * Several delivery quotes at once (background sync).
+	 *
+	 * @param array<string,array{0:string,1:string,2:string}> $specs key => [ae product ID, SKU ID, ship-to country]
+	 * @return array<string,array|WP_Error> key => options (cheapest first) or error
+	 */
+	public static function freights( array $specs ) {
+		$calls = array();
+		foreach ( $specs as $key => $f ) {
+			$calls[ $key ] = array( 'aliexpress.ds.freight.query', self::freight_params( $f[0], $f[1], strtoupper( $f[2] ), 1 ) );
+		}
+		$out = array();
+		foreach ( self::request_many( $calls ) as $key => $data ) {
+			$f           = $specs[ $key ];
+			$out[ $key ] = self::parse_freight( $data, $f[0], $f[1], strtoupper( $f[2] ), 1 );
+		}
+		return $out;
+	}
+
+	private static function freight_params( $ae_product_id, $sku_id, $ship_to, $qty ) {
+		return array(
+			'queryDeliveryReq' => wp_json_encode(
+				array(
+					'quantity'      => max( 1, (int) $qty ),
+					'shipToCountry' => $ship_to,
+					'productId'     => (string) $ae_product_id,
+					'selectedSkuId' => (string) $sku_id,
+					'language'      => 'en_US',
+					'currency'      => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD',
+					'locale'        => 'en_US',
+				)
+			),
 		);
+	}
+
+	private static function parse_freight( $data, $ae_product_id, $sku_id, $ship_to, $qty ) {
+		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD';
 		if ( self::method_unavailable( $data ) ) {
 			return self::freight_legacy( $ae_product_id, $sku_id, $ship_to, $qty, $currency );
 		}
@@ -711,10 +847,32 @@ class GSUP_AliExpress {
 	 * @return array|WP_Error {status, logistics_status, amount, currency, tracking: [{number, carrier}]}
 	 */
 	public static function get_order( $ae_order_id ) {
-		$data = self::request(
-			'aliexpress.trade.ds.order.get',
-			array( 'single_order_query' => wp_json_encode( array( 'order_id' => (string) $ae_order_id ) ) )
-		);
+		return self::parse_order( self::request( 'aliexpress.trade.ds.order.get', self::order_params( $ae_order_id ) ), $ae_order_id );
+	}
+
+	/**
+	 * Several AliExpress orders at once (tracking check).
+	 *
+	 * @param string[] $ae_order_ids
+	 * @return array<string,array|WP_Error> order ID => order or error
+	 */
+	public static function get_orders( array $ae_order_ids ) {
+		$calls = array();
+		foreach ( array_unique( array_map( 'strval', $ae_order_ids ) ) as $id ) {
+			$calls[ $id ] = array( 'aliexpress.trade.ds.order.get', self::order_params( $id ) );
+		}
+		$out = array();
+		foreach ( self::request_many( $calls ) as $id => $data ) {
+			$out[ (string) $id ] = self::parse_order( $data, (string) $id );
+		}
+		return $out;
+	}
+
+	private static function order_params( $ae_order_id ) {
+		return array( 'single_order_query' => wp_json_encode( array( 'order_id' => (string) $ae_order_id ) ) );
+	}
+
+	private static function parse_order( $data, $ae_order_id ) {
 		if ( is_wp_error( $data ) ) {
 			return $data;
 		}

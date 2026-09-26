@@ -19,6 +19,7 @@ delete_option( 'gsup_price_multiplier' );
 delete_option( 'gsup_price_add' );
 delete_option( 'gsup_price_round' );
 wp_clear_scheduled_hook( 'gsup_keep_alive' );
+delete_transient( 'gsup_schedules_ok' );
 foreach (
 	array(
 		'gsup_sync_enabled', 'gsup_sync_prices', 'gsup_sync_email', 'gsup_sync_run', 'gsup_sync_last', 'gsup_price_shipping',

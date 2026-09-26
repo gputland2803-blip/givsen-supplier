@@ -216,6 +216,10 @@ function gsup_find_linked( $ae_product_id, $ae_sku_id = '' ) {
 	if ( '' === (string) $ae_product_id ) {
 		return array();
 	}
+	$key = (string) $ae_product_id . '|' . (string) $ae_sku_id;
+	if ( isset( $GLOBALS['gsup_link_memo'][ $key ] ) ) {
+		return $GLOBALS['gsup_link_memo'][ $key ];
+	}
 	$found = array();
 	if ( '' !== (string) $ae_sku_id ) {
 		$ids = get_posts(
@@ -254,6 +258,84 @@ function gsup_find_linked( $ae_product_id, $ae_sku_id = '' ) {
 			)
 		)
 	);
+}
+
+/**
+ * Look up many AliExpress product/option links with two queries, for screens that list a lot of them
+ * (import list, Add to store). Later gsup_find_linked() calls for these pairs in the same request use the answers.
+ *
+ * @param array<int,array{0:string,1:string}> $pairs [ae product ID, ae SKU ID ('' for none)]
+ */
+function gsup_prime_links( array $pairs ) {
+	global $wpdb;
+	$pids = array();
+	$skus = array();
+	foreach ( $pairs as $pair ) {
+		if ( '' !== (string) $pair[0] ) {
+			$pids[ (string) $pair[0] ] = true;
+			if ( '' !== (string) $pair[1] ) {
+				$skus[ (string) $pair[1] ] = true;
+			}
+		}
+	}
+	if ( ! $pids ) {
+		return;
+	}
+	$live   = "p.post_status NOT IN ('trash','auto-draft')";
+	$in     = implode( ',', array_fill( 0, count( $pids ), '%s' ) );
+	$by_pid = array();
+	$pid_of = array();
+	// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+	$rows = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT pm.post_id, pm.meta_value FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+			WHERE pm.meta_key = %s AND pm.meta_value IN ($in) AND p.post_type = 'product' AND $live ORDER BY p.post_date DESC",
+			array_merge( array( GSUP_META_PRODUCT ), array_keys( $pids ) )
+		)
+	);
+	foreach ( $rows as $r ) {
+		$by_pid[ $r->meta_value ][] = (int) $r->post_id;
+		$pid_of[ (int) $r->post_id ] = (string) $r->meta_value;
+	}
+	$by_sku = array();
+	if ( $skus ) {
+		$in   = implode( ',', array_fill( 0, count( $skus ), '%s' ) );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT pm.post_id, pm.meta_value, p.post_type, p.post_parent FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+				WHERE pm.meta_key = %s AND pm.meta_value IN ($in) AND p.post_type IN ('product','product_variation') AND $live",
+				array_merge( array( GSUP_META_SKU ), array_keys( $skus ) )
+			)
+		);
+		foreach ( $rows as $r ) {
+			$by_sku[ $r->meta_value ][] = array( (int) $r->post_id, 'product_variation' === $r->post_type ? (int) $r->post_parent : (int) $r->post_id );
+		}
+	}
+	// phpcs:enable
+	foreach ( $pairs as $pair ) {
+		$pid   = (string) $pair[0];
+		$sku   = (string) $pair[1];
+		$found = array();
+		if ( '' !== $sku ) {
+			foreach ( isset( $by_sku[ $sku ] ) ? $by_sku[ $sku ] : array() as $hit ) {
+				if ( isset( $pid_of[ $hit[1] ] ) && $pid_of[ $hit[1] ] === $pid ) {
+					$found[] = $hit[0];
+				}
+			}
+		}
+		$GLOBALS['gsup_link_memo'][ $pid . '|' . $sku ] = $found ? array_slice( $found, 0, 10 ) : array_slice( isset( $by_pid[ $pid ] ) ? $by_pid[ $pid ] : array(), 0, 10 );
+		if ( ! isset( $GLOBALS['gsup_link_memo'][ $pid . '|' ] ) ) {
+			$GLOBALS['gsup_link_memo'][ $pid . '|' ] = array_slice( isset( $by_pid[ $pid ] ) ? $by_pid[ $pid ] : array(), 0, 10 );
+		}
+	}
+	// Warm the caches the screens read next (titles, meta).
+	$ids = array();
+	foreach ( $GLOBALS['gsup_link_memo'] as $list ) {
+		$ids = array_merge( $ids, $list );
+	}
+	if ( $ids ) {
+		_prime_post_caches( array_unique( $ids ), false, true );
+	}
 }
 
 /**

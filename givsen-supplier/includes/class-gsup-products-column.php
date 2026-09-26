@@ -109,7 +109,7 @@ class GSUP_Products_Column {
 	}
 
 	private static function render_margin( WC_Product $product ) {
-		$m = GSUP_Profit::product_summary( $product );
+		$m = GSUP_Profit::cached_summary( $product );
 		if ( ! $m ) {
 			echo '<span class="gsup-sub gsup-sub--muted">Margin: cost not known</span>';
 			return;

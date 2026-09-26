@@ -25,6 +25,7 @@ register_activation_hook( __FILE__, array( 'GSUP_Install', 'activate' ) );
 register_deactivation_hook( __FILE__, 'gsup_deactivate' );
 
 function gsup_deactivate() {
+	delete_transient( 'gsup_schedules_ok' );
 	wp_clear_scheduled_hook( 'gsup_keep_alive' );
 	if ( class_exists( 'GSUP_Sync' ) ) {
 		GSUP_Sync::unschedule();
@@ -43,7 +44,11 @@ function gsup_declare_wc_compat() {
 
 add_action( 'plugins_loaded', 'gsup_boot', 20 );
 function gsup_boot() {
-	GSUP_Install::maybe_upgrade();
+	// Upgrades and schedule checks only run in the admin and background jobs — never on shop pages.
+	$backstage = is_admin() || wp_doing_cron() || ( defined( 'WP_CLI' ) && WP_CLI );
+	if ( $backstage ) {
+		GSUP_Install::maybe_upgrade();
+	}
 
 	if ( ! class_exists( 'WooCommerce' ) ) {
 		add_action( 'admin_notices', 'gsup_notice_needs_woocommerce' );
@@ -64,8 +69,8 @@ function gsup_boot() {
 
 	// Keep the AliExpress connection alive on quiet days.
 	add_action( 'gsup_keep_alive', array( 'GSUP_AliExpress', 'keep_alive' ) );
-	if ( ! wp_next_scheduled( 'gsup_keep_alive' ) ) {
-		wp_schedule_event( time() + HOUR_IN_SECONDS, 'twicedaily', 'gsup_keep_alive' );
+	if ( $backstage ) {
+		add_action( 'init', 'gsup_ensure_schedules', 20 );
 	}
 	GSUP_REST::init();
 
@@ -79,6 +84,22 @@ function gsup_boot() {
 		GSUP_Admin_Page::init();
 		GSUP_Order_Panel::init();
 	}
+}
+
+/**
+ * Make sure the background jobs are scheduled. Checked at most every 12 hours
+ * (settings changes re-check straight away), so it costs nothing on most requests.
+ */
+function gsup_ensure_schedules() {
+	if ( get_transient( 'gsup_schedules_ok' ) ) {
+		return;
+	}
+	if ( ! wp_next_scheduled( 'gsup_keep_alive' ) ) {
+		wp_schedule_event( time() + HOUR_IN_SECONDS, 'twicedaily', 'gsup_keep_alive' );
+	}
+	GSUP_Sync::schedule();
+	GSUP_Orders::schedule();
+	set_transient( 'gsup_schedules_ok', 1, 12 * HOUR_IN_SECONDS );
 }
 
 function gsup_notice_needs_woocommerce() {

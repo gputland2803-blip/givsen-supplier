@@ -37,7 +37,6 @@ class GSUP_Orders {
 		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'queue' ), 20, 1 );
 		add_action( 'gsup_place_order', array( __CLASS__, 'place' ), 10, 1 );
 		add_action( 'gsup_tracking_check', array( __CLASS__, 'check_tracking' ) );
-		add_action( 'init', array( __CLASS__, 'schedule' ), 20 );
 
 		// Show tracking to the customer, unless Advanced Shipment Tracking already does.
 		add_action( 'woocommerce_email_order_meta', array( __CLASS__, 'email_tracking' ), 20, 3 );
@@ -173,6 +172,7 @@ class GSUP_Orders {
 			$order->delete_meta_data( self::M_AUTO_STATE );
 		}
 		$order->update_meta_data( self::M_AUTO_AT, time() );
+		$order->set_date_modified( time() ); // Item costs changed: refresh cached profit.
 		if ( $placed ) {
 			$order->update_meta_data( self::M_AWAITING, 'yes' );
 		}
@@ -415,8 +415,25 @@ class GSUP_Orders {
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
-		foreach ( self::awaiting_orders() as $order_id ) {
-			$r = self::check_order( $order_id );
+		$ids = self::awaiting_orders();
+		// Ask AliExpress about every waiting order in one go (a few at a time) rather than one by one.
+		$numbers = array();
+		foreach ( $ids as $order_id ) {
+			$order = wc_get_order( $order_id );
+			if ( ! $order ) {
+				continue;
+			}
+			foreach ( $order->get_items() as $item_id => $item ) {
+				if ( self::line_waits( $order, $item_id, $item ) ) {
+					foreach ( preg_split( '/[\s,;]+/', (string) $item->get_meta( GSUP_ITEM_AE_ORDER ), -1, PREG_SPLIT_NO_EMPTY ) as $no ) {
+						$numbers[ $no ] = $no;
+					}
+				}
+			}
+		}
+		$known = $numbers ? GSUP_AliExpress::get_orders( array_values( $numbers ) ) : array();
+		foreach ( $ids as $order_id ) {
+			$r = self::check_order( $order_id, $known );
 			if ( is_wp_error( $r ) && 'gsup_stop' === $r->get_error_code() ) {
 				break; // Connection trouble: try again next time.
 			}
@@ -428,7 +445,7 @@ class GSUP_Orders {
 	 *
 	 * @return int|WP_Error Number of lines that got tracking.
 	 */
-	public static function check_order( $order_id ) {
+	public static function check_order( $order_id, array $known = array() ) {
 		$order = wc_get_order( $order_id );
 		if ( ! $order ) {
 			return 0;
@@ -436,7 +453,7 @@ class GSUP_Orders {
 		$found   = 0;
 		$waiting = 0;
 		$notes   = array();
-		$cache   = array();
+		$cache   = $known;
 		foreach ( $order->get_items() as $item_id => $item ) {
 			if ( ! self::line_waits( $order, $item_id, $item ) ) {
 				continue;
@@ -448,7 +465,7 @@ class GSUP_Orders {
 				if ( '' === $no ) {
 					continue;
 				}
-				if ( ! isset( $cache[ $no ] ) ) {
+				if ( ! isset( $cache[ (string) $no ] ) ) {
 					$cache[ $no ] = GSUP_AliExpress::get_order( $no );
 				}
 				$info = $cache[ $no ];
