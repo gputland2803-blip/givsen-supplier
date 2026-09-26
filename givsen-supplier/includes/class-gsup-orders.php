@@ -4,7 +4,10 @@
  *
  * Ordering (while Settings → Automatic ordering is on):
  *  - When an order reaches Processing (paid, or a Givsen gift once claimed), it's queued and placed in the background.
- *  - One AliExpress order per order line, so each line gets its own AliExpress order number.
+ *  - One AliExpress order per order line, so each line gets its own AliExpress order number — unless
+ *    "Combine items from the same seller" (trial, off by default) is on: then lines from the same seller and
+ *    warehouse go to AliExpress in one request, the order numbers it returns are matched back to the lines
+ *    (via the orders' own product lists), and each trial is recorded (GSUP_Orders::combine_log()).
  *  - Each line is checked first: linked to an exact option, still sold, in stock, a delivery method available,
  *    and (unless switched off) the AliExpress cost with delivery isn't more than the customer paid for that line.
  *  - Anything that can't be placed is left for you with the reason on the order panel, an order note and an email.
@@ -32,6 +35,7 @@ class GSUP_Orders {
 	const I_DEAD       = '_gsup_ae_dead';           // AliExpress order cancelled or not found: stop checking it for tracking.
 	const M_CHECKED    = '_gsup_tracking_checked';  // Last tracking check (also rotates the queue).
 	const GIVE_UP_DAYS = 60;
+	const COMBINE_LOG  = 'gsup_combine_log';        // Last 20 combined requests: what was sent and what came back.
 
 	/** Alerts raised during a tracking check, emailed together at the end. */
 	private static $alerts = array();
@@ -52,6 +56,17 @@ class GSUP_Orders {
 
 	public static function loss_guard() {
 		return 'no' !== get_option( 'gsup_auto_loss_guard', 'yes' );
+	}
+
+	/** Trial: send items from the same seller (and warehouse) to AliExpress in one request. */
+	public static function combine() {
+		return 'yes' === get_option( 'gsup_combine_seller', 'no' );
+	}
+
+	/** @return array[] Newest first. */
+	public static function combine_log() {
+		$log = get_option( self::COMBINE_LOG, array() );
+		return is_array( $log ) ? $log : array();
 	}
 
 	public static function complete_on_tracking() {
@@ -145,6 +160,7 @@ class GSUP_Orders {
 		$placed   = 0;
 		$problems = array();
 		$products = array();
+		$plans    = array();
 
 		foreach ( $order->get_items() as $item_id => $item ) {
 			/** @var WC_Order_Item_Product $item */
@@ -167,11 +183,24 @@ class GSUP_Orders {
 				$problems[ $item_id ] = self::problem( $item, $address->get_error_message() );
 				continue;
 			}
-			$result = self::place_line( $order, $item, $product, $link, $address, $country, $products );
-			if ( is_wp_error( $result ) ) {
-				$problems[ $item_id ] = self::problem( $item, $result->get_error_message() );
+			$plan = self::prepare_line( $order, $item, $product, $link, $country, $products );
+			if ( is_wp_error( $plan ) ) {
+				$problems[ $item_id ] = self::problem( $item, $plan->get_error_message() );
 			} else {
-				++$placed;
+				$plans[] = $plan;
+			}
+		}
+
+		// Every line was checked first; now send them — together per seller when the trial is on.
+		foreach ( self::group( $plans ) as $group ) {
+			$result = self::submit( $order, $group, $address );
+			foreach ( $group as $plan ) {
+				$item_id = $plan['item']->get_id();
+				if ( isset( $result[ $item_id ] ) && is_wp_error( $result[ $item_id ] ) ) {
+					$problems[ $item_id ] = self::problem( $plan['item'], $result[ $item_id ]->get_error_message() );
+				} else {
+					++$placed;
+				}
 			}
 		}
 
@@ -218,11 +247,38 @@ class GSUP_Orders {
 	}
 
 	/**
-	 * Place one line.
+	 * Each item's share of an AliExpress order number that several items carry (sent together in the same-seller
+	 * trial), by their quoted costs — so the order's total isn't counted once per item. Unshared numbers aren't listed.
 	 *
-	 * @return string|WP_Error AliExpress order number.
+	 * @return array<string,array<int,float>> AliExpress order number => [item ID => share]
 	 */
-	private static function place_line( WC_Order $order, WC_Order_Item_Product $item, WC_Product $product, array $link, array $address, $country, array &$products ) {
+	public static function cost_shares( $order ) {
+		$by = array();
+		foreach ( $order->get_items() as $item_id => $item ) {
+			$no = trim( (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) );
+			if ( '' !== $no && false === strpbrk( $no, ', ;' ) ) {
+				$by[ $no ][ $item_id ] = max( 0.0, (float) $item->get_meta( GSUP_ITEM_AE_COST ) );
+			}
+		}
+		$out = array();
+		foreach ( $by as $no => $costs ) {
+			if ( count( $costs ) < 2 ) {
+				continue;
+			}
+			$total = array_sum( $costs );
+			foreach ( $costs as $item_id => $cost ) {
+				$out[ $no ][ $item_id ] = $total > 0 ? $cost / $total : 1 / count( $costs );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Check one line and work out exactly what to order: option, delivery method, cost, and the seller.
+	 *
+	 * @return array|WP_Error Plan: {item, product_id, qty, sku_attr, freight, cost, store_id, ship_from}.
+	 */
+	private static function prepare_line( WC_Order $order, WC_Order_Item_Product $item, WC_Product $product, array $link, $country, array &$products ) {
 		$item_id = $item->get_id();
 		$qty     = self::net_qty( $order, $item_id, $item );
 		$parent_id = $product->is_type( 'variation' ) ? $product->get_parent_id() : $product->get_id();
@@ -276,50 +332,196 @@ class GSUP_Orders {
 				sprintf( 'AliExpress would charge %1$s (with %2$s delivery) but the customer paid %3$s for this line.', gsup_money( $cost ), $freight['name'], gsup_money( $paid ) )
 			);
 		}
+		return array(
+			'item'       => $item,
+			'product_id' => (string) $link['product_id'],
+			'qty'        => $qty,
+			'sku_attr'   => $sku['sku_attr'],
+			'freight'    => $freight,
+			'cost'       => $cost,
+			'store_id'   => isset( $ae['store_id'] ) ? (string) $ae['store_id'] : '',
+			'ship_from'  => (string) $sku['ship_from'],
+		);
+	}
 
-		$item->update_meta_data( self::I_PLACING, time() );
-		$item->save();
-		$ids = GSUP_AliExpress::place_order(
-			$address,
-			array(
-				array(
-					'product_id' => $link['product_id'],
-					'qty'        => $qty,
-					'sku_attr'   => $sku['sku_attr'],
-					'service'    => $freight['code'],
-					'memo'       => (string) apply_filters( 'gsup_order_memo', 'Please do not include invoices or prices in the parcel. Thank you!', $order, $item ),
-				),
-			),
-			$order->get_order_number() . '-' . $item_id
-		);
-		if ( is_wp_error( $ids ) ) {
-			if ( in_array( $ids->get_error_code(), array( 'gsup_ae_network', 'gsup_ae_bad_response', 'gsup_ae_order_unknown' ), true ) ) {
-				return new WP_Error( 'gsup_unknown', $ids->get_error_message() . ' It may have gone through — check your AliExpress orders before ordering again.' );
-			}
-			$item->delete_meta_data( self::I_PLACING );
-			$item->save();
-			return $ids;
+	/**
+	 * Lines to send together. Normally one per request; with the trial on, lines from the same seller and warehouse
+	 * share a request. Lines whose seller AliExpress didn't name always go on their own.
+	 *
+	 * @param array[] $plans
+	 * @return array[][]
+	 */
+	public static function group( array $plans ) {
+		$groups = array();
+		foreach ( $plans as $i => $plan ) {
+			$key              = self::combine() && '' !== $plan['store_id'] ? 's:' . $plan['store_id'] . '|' . $plan['ship_from'] : 'l:' . $i;
+			$groups[ $key ][] = $plan;
 		}
-		$ae_order = implode( ', ', $ids );
-		$item->delete_meta_data( self::I_PLACING );
-		$item->delete_meta_data( GSUP_ITEM_PROBLEM );
-		$item->update_meta_data( GSUP_ITEM_AE_ORDER, $ae_order );
-		$item->update_meta_data( self::I_METHOD, $freight['name'] );
-		$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $cost, 2 ) );
-		GSUP_Parcels::mark_placed( $item, (int) $freight['max_days'] );
-		$item->save();
-		$order->add_order_note(
-			sprintf(
-				'Givsen Supplier placed “%1$s” × %2$d on AliExpress: order %3$s, %4$s delivery, cost %5$s%6$s.',
-				$item->get_name(),
-				$qty,
-				$ae_order,
-				$freight['name'],
-				gsup_money( $cost ),
-				GSUP_AliExpress::$last_pay_requested ? '' : ' — waiting for you to pay it on AliExpress'
-			)
+		return array_values( $groups );
+	}
+
+	/**
+	 * Place one request on AliExpress for these lines and save the order number(s) on each.
+	 *
+	 * @param array[] $plans From prepare_line(), all to go in one request.
+	 * @return array<int,WP_Error> Problems by item ID (none = all placed).
+	 */
+	private static function submit( WC_Order $order, array $plans, array $address ) {
+		$lines = array();
+		foreach ( $plans as $plan ) {
+			$plan['item']->update_meta_data( self::I_PLACING, time() );
+			$plan['item']->save();
+			$lines[] = array(
+				'product_id' => $plan['product_id'],
+				'qty'        => $plan['qty'],
+				'sku_attr'   => $plan['sku_attr'],
+				'service'    => $plan['freight']['code'],
+				'memo'       => (string) apply_filters( 'gsup_order_memo', 'Please do not include invoices or prices in the parcel. Thank you!', $order, $plan['item'] ),
+			);
+		}
+		$first  = $plans[0]['item']->get_id();
+		$out_id = $order->get_order_number() . '-' . $first . ( count( $plans ) > 1 ? '-x' . count( $plans ) : '' );
+		$ids    = GSUP_AliExpress::place_order( $address, $lines, $out_id );
+
+		$errors = array();
+		if ( is_wp_error( $ids ) ) {
+			$unknown = in_array( $ids->get_error_code(), array( 'gsup_ae_network', 'gsup_ae_bad_response', 'gsup_ae_order_unknown' ), true );
+			if ( count( $plans ) > 1 && ! $unknown ) {
+				// AliExpress refused the combined request (nothing was ordered): place each item on its own instead.
+				self::record_combined( $order, $plans, $ids, array(), array() );
+				foreach ( $plans as $plan ) {
+					$errors += self::submit( $order, array( $plan ), $address );
+				}
+				return $errors;
+			}
+			$unknown = in_array( $ids->get_error_code(), array( 'gsup_ae_network', 'gsup_ae_bad_response', 'gsup_ae_order_unknown' ), true );
+			foreach ( $plans as $plan ) {
+				$item = $plan['item'];
+				if ( $unknown ) {
+					$errors[ $item->get_id() ] = new WP_Error( 'gsup_unknown', $ids->get_error_message() . ' It may have gone through — check your AliExpress orders before ordering again.' );
+					continue;
+				}
+				$item->delete_meta_data( self::I_PLACING );
+				$item->save();
+				$errors[ $item->get_id() ] = $ids;
+			}
+			if ( count( $plans ) > 1 ) {
+				self::record_combined( $order, $plans, $ids, array(), array() );
+			}
+			return $errors;
+		}
+
+		$map    = array_fill( 0, count( $plans ), $ids );
+		$lookup = array();
+		if ( count( $plans ) > 1 ) {
+			list( $map, $lookup ) = self::match_orders( $plans, $ids );
+			self::record_combined( $order, $plans, $ids, $map, $lookup );
+		}
+		$pay_note = GSUP_AliExpress::$last_pay_requested ? '' : ' — waiting for you to pay it on AliExpress';
+		foreach ( $plans as $i => $plan ) {
+			$item     = $plan['item'];
+			$ae_order = implode( ', ', $map[ $i ] );
+			$item->delete_meta_data( self::I_PLACING );
+			$item->delete_meta_data( GSUP_ITEM_PROBLEM );
+			$item->update_meta_data( GSUP_ITEM_AE_ORDER, $ae_order );
+			$item->update_meta_data( self::I_METHOD, $plan['freight']['name'] );
+			$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $plan['cost'], 2 ) );
+			GSUP_Parcels::mark_placed( $item, (int) $plan['freight']['max_days'] );
+			$item->save();
+			$order->add_order_note(
+				sprintf(
+					'Givsen Supplier placed “%1$s” × %2$d on AliExpress: order %3$s, %4$s delivery, cost %5$s%6$s%7$s.',
+					$item->get_name(),
+					$plan['qty'],
+					$ae_order,
+					$plan['freight']['name'],
+					gsup_money( $plan['cost'] ),
+					count( $plans ) > 1 ? ' (quoted on its own; sent together with ' . ( count( $plans ) - 1 ) . ' other item(s) from the same seller)' : '',
+					$pay_note
+				)
+			);
+		}
+		return $errors;
+	}
+
+	/**
+	 * Which AliExpress order each line ended up in. One order number → all lines. Several → each order is looked up
+	 * and lines are matched by product ID; a line that can't be pinned to one order gets all the numbers (tracking
+	 * checks each of them, so nothing is lost).
+	 *
+	 * @return array{0:array<int,string[]>,1:array<string,array|WP_Error>} [line index => order numbers, lookups]
+	 */
+	public static function match_orders( array $plans, array $ids ) {
+		$map    = array_fill( 0, count( $plans ), $ids );
+		$lookup = GSUP_AliExpress::get_orders( $ids ); // Also records what AliExpress charged, for the trial log.
+		if ( count( $ids ) < 2 ) {
+			return array( $map, $lookup );
+		}
+		foreach ( $plans as $i => $plan ) {
+			$hits = array();
+			foreach ( $ids as $id ) {
+				$o = $lookup[ $id ] ?? null;
+				if ( is_array( $o ) && in_array( $plan['product_id'], $o['products'], true ) ) {
+					$hits[] = $id;
+				}
+			}
+			if ( 1 === count( $hits ) ) {
+				$map[ $i ] = $hits;
+			}
+		}
+		return array( $map, $lookup );
+	}
+
+	/** Keep what a combined request sent and got back, for Settings → Ordering → "Combined orders so far". */
+	private static function record_combined( WC_Order $order, array $plans, $ids, array $map, array $lookup ) {
+		$lines = array();
+		foreach ( $plans as $i => $plan ) {
+			$lines[] = array(
+				'name'    => $plan['item']->get_name(),
+				'qty'     => $plan['qty'],
+				'product' => $plan['product_id'],
+				'method'  => $plan['freight']['name'],
+				'fee'     => (float) $plan['freight']['fee'],
+				'cost'    => (float) $plan['cost'],
+				'orders'  => isset( $map[ $i ] ) ? array_values( $map[ $i ] ) : array(),
+			);
+		}
+		$orders = array();
+		if ( ! is_wp_error( $ids ) ) {
+			foreach ( $ids as $id ) {
+				$o             = $lookup[ $id ] ?? null;
+				$orders[ $id ] = is_array( $o ) ? array(
+					'amount'   => $o['amount'],
+					'currency' => $o['currency'],
+					'products' => $o['products'],
+				) : null;
+			}
+		}
+		$entry = array(
+			'at'       => time(),
+			'order_id' => $order->get_id(),
+			'order_no' => (string) $order->get_order_number(),
+			'store_id' => (string) $plans[0]['store_id'],
+			'lines'    => $lines,
+			'result'   => is_wp_error( $ids ) ? 'error' : ( 1 === count( $ids ) ? 'one' : 'split' ),
+			'error'    => is_wp_error( $ids ) ? $ids->get_error_message() : '',
+			'orders'   => $orders,
 		);
-		return $ae_order;
+		$log = self::combine_log();
+		array_unshift( $log, $entry );
+		update_option( self::COMBINE_LOG, array_slice( $log, 0, 20 ), false );
+		if ( is_wp_error( $ids ) && in_array( $ids->get_error_code(), array( 'gsup_ae_network', 'gsup_ae_bad_response', 'gsup_ae_order_unknown' ), true ) ) {
+			$entry['result'] = 'unknown';
+			$log[0]          = $entry;
+			update_option( self::COMBINE_LOG, array_slice( $log, 0, 20 ), false );
+			$order->add_order_note( sprintf( 'Combined order trial: %d items from the same seller sent together; AliExpress gave no clear answer (%s). Check your AliExpress orders before ordering them again.', count( $plans ), $ids->get_error_message() ) );
+			return;
+		}
+		$order->add_order_note(
+			is_wp_error( $ids )
+				? sprintf( 'Combined order trial: %d items from the same seller sent together; AliExpress refused (%s), so each is placed on its own.', count( $plans ), $ids->get_error_message() )
+				: sprintf( 'Combined order trial: %1$d items from the same seller sent together → %2$s (%3$s).', count( $plans ), 1 === count( $ids ) ? 'one AliExpress order' : count( $ids ) . ' AliExpress orders', implode( ', ', $ids ) )
+		);
 	}
 
 	/**
@@ -473,6 +675,7 @@ class GSUP_Orders {
 		$waiting = 0;
 		$notes   = array();
 		$cache   = $known;
+		$shares  = self::cost_shares( $order );
 		foreach ( $order->get_items() as $item_id => $item ) {
 			if ( ! self::line_waits( $order, $item_id, $item ) ) {
 				continue;
@@ -509,7 +712,9 @@ class GSUP_Orders {
 				}
 				$same_currency = '' === $info['currency'] || strtoupper( $info['currency'] ) === strtoupper( $order->get_currency() );
 				if ( $same_currency && null !== $info['amount'] && $info['amount'] > 0 && 1 === count( preg_split( '/[\s,;]+/', $ae_order, -1, PREG_SPLIT_NO_EMPTY ) ) ) {
-					$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $info['amount'], 2 ) );
+					// An order shared by several items (same-seller trial) is split by their quoted costs.
+					$share = $shares[ $no ][ $item_id ] ?? 1.0;
+					$item->update_meta_data( GSUP_ITEM_AE_COST, wc_format_decimal( $info['amount'] * $share, 2 ) );
 				}
 				foreach ( $info['tracking'] as $t ) {
 					$numbers[ $t['number'] ]  = true;

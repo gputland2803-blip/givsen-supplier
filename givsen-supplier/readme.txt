@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.12.0
+Stable tag: 0.13.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -32,6 +32,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.13.0 =
+* Trial (off by default): send items from the same seller to AliExpress in one request, with order numbers matched back to each item and a log of what AliExpress did and charged.
 
 = 0.12.0 =
 * Bulk import with the Chrome extension (0.6.0): tick products on AliExpress search results, store pages or a product's related items and add up to 30 at once; they're checked with AliExpress in the background. Cards already in your store or import list are labelled.

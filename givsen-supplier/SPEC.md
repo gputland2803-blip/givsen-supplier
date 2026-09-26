@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.12.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.13.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -91,7 +91,7 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 ## Automatic ordering (`gsup_auto_order`, default off)
 - `woocommerce_order_status_processing` → Action Scheduler `gsup_place_order` (order ID) one minute later. Covers paid orders and claimed gifts (Awaiting Givsen Address → Processing). Only while AliExpress is connected.
 - Re-checked when it runs: still Processing, not locked (5-minute transient per order).
-- One AliExpress order per line (`out_order_id` = order number-item ID). Lines with an AliExpress order number are skipped; lines not linked to AliExpress are ignored.
+- One AliExpress order per line (`out_order_id` = order number-item ID) unless the same-seller trial is on (see below). Lines with an AliExpress order number are skipped; lines not linked to AliExpress are ignored.
 - Per line, refused with a reason when: refunded; product removed / option gone at last sync; variable parent only; option not on the listing for the delivery country; no `sku_attr`; stock below quantity; no delivery method; loss guard (`gsup_auto_loss_guard`, default on) — AliExpress price × qty + delivery fee > line total after refunds.
 - Address: shipping, else billing; name, street, city, postcode, country and phone required. Company prefixed to the street. State written out. Phone split into `phone_country` (+61) and digits without the trunk 0 (not for US/CA).
 - Delivery: freight quote for the actual quantity and country, chosen by the preference.
@@ -132,6 +132,9 @@ Drops the import list table and the plugin's options, and unschedules its backgr
 
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
+
+## Same-seller trial (`gsup_combine_seller`, default no)
+`GSUP_Orders::place()` checks every line first (`prepare_line()` → plan {item, product_id, qty, sku_attr, freight, cost, store_id, ship_from}), then `group()`: key `store_id|ship_from` when on and store_id known, else one per line. `submit()` sends a group in one `place_order()` (`out_order_id` = number-firstItemID-xN). Success → `match_orders()`: `get_orders()` on the returned numbers; a line whose product ID is in exactly one order gets that number, else all numbers. Refused (not a network/unknown error) → logged, then each line submitted alone (`number-itemID`). Unknown → every line flagged `gsup_unknown`, `_gsup_placing` kept, not retried. Each group of 2+ is logged in `gsup_combine_log` (last 20: at, order, store, lines {name, qty, product, method, fee, cost, orders}, result one/split/error/unknown, orders {number: amount, currency, products}) and shown under Settings → Ordering → Combined orders so far; order note added. Item cost stays its own quote; when tracking later reads an order's amount, `cost_shares()` splits a number shared by several lines by their current costs. Listing `store_id` from `ae_store_info`; order `products`/`store_id` from `child_order_list` / `store_info`.
 
 ## Givsen gift plugin
 `GSUP_Givsen` (active when `givsen_is_gift_order()` exists). `_givsen_mode` corporate → never queued/placed, panel explains. corporate_child → loss check and profit from `child_share()` = parent line total ÷ quantity + parent shipping ÷ quantity, fees ÷ quantity (not cached on the child). Phone: shipping → billing → parent billing (child) → `gsup_fallback_phone`. `hide_from_buyer()` = `givsen_is_gift_order()` and `_givsen_address_by` ≠ sender → no tracking in customer emails/My Account, no AST. Delivered email: personal gift → buyer ("to {first name}", via `givsen_greeting_first_name()`); corporate_child → billing email (the recipient's) or nobody; corporate parent → nobody. Report adds fee-only orders (`_givsen_postage_for`) as revenue.
@@ -245,3 +248,5 @@ Run after any change, on a staging copy with MySQL.
 53. Tick 3 new products + 1 "In import list" product, choose a category → Add 4 → "Added 3, already there 1"; the ticked cards now say "In import list". Import list shows 3 new rows with "Choose warehouse and options on Add to store" and the category; within a minute (WP-Cron/Action Scheduler) each row's note says it was checked with AliExpress (title/picture updated; single-option listings show their option and ships-from).
 54. Try to tick a 31st product → can't (boxes disabled, bar says "max 30"). Add to store on a bulk row → choose warehouse and options as usual → linked; the card then shows "In store" after a page refresh.
 55. A store page and a product page's "More to love" section → checkboxes on the products (not on the product you're viewing). An AliExpress page without products (orders, cart) → no checkboxes, no bar.
+56. Same-seller trial on → order with 2 items from one AU seller → placed in one request: order note "Combined order trial: 2 items … → one AliExpress order (…)" or "… 2 AliExpress orders"; each item shows its own order number; Settings → Ordering → Combined orders so far lists it with quoted vs charged. Compare with the AliExpress order page (one parcel? one delivery fee?).
+57. Trial on, same order with one item out of stock on AliExpress → the out-of-stock item is refused before sending; the other is placed alone. Trial off → one AliExpress order per item as before. Profit on a shared order after tracking arrives = AliExpress's total, split between the items (not doubled).

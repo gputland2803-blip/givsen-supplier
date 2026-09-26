@@ -1,5 +1,14 @@
 # Givsen Supplier — Changelog
 
+## 0.13.0 — 2026-09-26
+- **Trial: combine items from the same seller** (Settings → Ordering & tracking → Same seller; off by default). AliExpress's order API takes a list of items and returns a list of order numbers, but its documentation doesn't say whether same-seller items become one order with one delivery fee — this finds out on real orders.
+  - When on, an order's items are all checked first (option, stock, delivery, loss guard — unchanged, each quoted on its own), then items from the same seller and warehouse go to AliExpress in one request. Items whose seller AliExpress didn't name, or from different warehouses, still go on their own.
+  - The order number(s) AliExpress returns are matched back to each item by looking the orders up (which products each contains). An item that can't be pinned to one order keeps all the numbers, so tracking still finds it.
+  - If AliExpress refuses the combined request, nothing was ordered, so each item is placed on its own as usual. If it gives no clear answer, nothing is retried and every item is flagged to check (as before).
+  - Each try is recorded under **Combined orders so far**: items, one order or several, what the items cost quoted on their own vs. what AliExpress charged — plus an order note.
+  - Profit: when several items share one AliExpress order, the amount AliExpress charged is split between them by their quoted costs instead of being counted for each.
+- Listings now remember their seller (store ID); order look-ups read the products in the order and its seller.
+
 ## 0.12.0 — 2026-09-26
 - **Bulk import from search results and store pages** (with Chrome extension 0.6.0). Tick products on AliExpress search results, store pages or a product page's related items, choose a category, and "Add N to Givsen" — up to 30 at a time. Each becomes an import-list row with no option chosen yet ("Choose warehouse and options on Add to store"), then Add to store works as usual.
 - Products already in your store or already waiting in the import list are skipped (dismissed rows are brought back); the extension labels those cards "In store" / "In import list" before you tick anything. The reply says how many were added, already there, and failed (with the reason).

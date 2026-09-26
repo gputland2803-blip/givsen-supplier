@@ -3,7 +3,11 @@ define('ABSPATH','/'); define('DAY_IN_SECONDS',86400); define('HOUR_IN_SECONDS',
 define('GSUP_VERSION','0.6.0'); define('GSUP_URL','/');
 class WP_Error { public $c,$m,$d; function __construct($c='',$m='',$d=null){$this->c=$c;$this->m=$m;$this->d=$d;} function get_error_code(){return $this->c;} function get_error_message(){return $this->m;} function get_error_data(){return $this->d;} }
 function is_wp_error($x){return $x instanceof WP_Error;}
-$GLOBALS['opts']=['gsup_secret'=>'abcDEF1234567890abcDEF1234567890abcdEFGH','gsup_ae_app_key'=>'512345','gsup_ae_app_secret'=>'x','gsup_ae_token'=>['access_token'=>'t','refresh_token'=>'r','expires_at'=>time()+86400*25,'issued_at'=>time(),'connected_at'=>time(),'account'=>'givsen_store','refresh_expires_at'=>0],'gsup_auto_order'=>'yes','gsup_cbr_enabled'=>'no','admin_email'=>'gp@example.com',
+$GLOBALS['opts']=['gsup_secret'=>'abcDEF1234567890abcDEF1234567890abcdEFGH','gsup_ae_app_key'=>'512345','gsup_ae_app_secret'=>'x','gsup_ae_token'=>['access_token'=>'t','refresh_token'=>'r','expires_at'=>time()+86400*25,'issued_at'=>time(),'connected_at'=>time(),'account'=>'givsen_store','refresh_expires_at'=>0],'gsup_auto_order'=>'yes','gsup_combine_seller'=>'yes','gsup_combine_log'=>[
+ ['at'=>time(),'order_id'=>0,'order_no'=>'1201','store_id'=>'1102345678','result'=>'one','error'=>'','lines'=>[['name'=>'Pearl Necklace','qty'=>1,'product'=>'1005006000000001','method'=>'AliExpress Standard','fee'=>4.5,'cost'=>16.2,'orders'=>['8190000000001']],['name'=>'Pearl Earrings','qty'=>2,'product'=>'1005006000000002','method'=>'AliExpress Standard','fee'=>4.5,'cost'=>21.0,'orders'=>['8190000000001']]],'orders'=>['8190000000001'=>['amount'=>32.7,'currency'=>'AUD','products'=>['1005006000000001','1005006000000002']]]],
+ ['at'=>time()-86400,'order_id'=>0,'order_no'=>'1188','store_id'=>'1102345678','result'=>'split','error'=>'','lines'=>[['name'=>'Ring','qty'=>1,'product'=>'1','method'=>'Standard','fee'=>3,'cost'=>9,'orders'=>['81','82']]],'orders'=>['81'=>null,'82'=>['amount'=>9.0,'currency'=>'AUD','products'=>['1']]]],
+ ['at'=>time()-2*86400,'order_id'=>0,'order_no'=>'1150','store_id'=>'1','result'=>'error','error'=>'That shipping method isn’t available','lines'=>[],'orders'=>[]],
+],'gsup_cbr_enabled'=>'no','admin_email'=>'gp@example.com',
  'gsup_sync_last'=>['started'=>time()-7200,'finished'=>time()-7000,'manual'=>false,'total'=>42,'report'=>['checked'=>42,'stock_changes'=>5,'cost_changes'=>3,'price_changes'=>0,'ship_changes'=>2,'removed'=>[],'options_gone'=>[],'back'=>[],'missing'=>[],'low_margin'=>[],'errors'=>[]]]];
 function get_option($k,$d=false){return $GLOBALS['opts'][$k]??$d;}
 foreach(['esc_html','esc_attr','esc_url','esc_textarea','wp_kses_post','wp_strip_all_tags','sanitize_key','wp_unslash','sanitize_text_field','untrailingslashit'] as $f) eval("function $f(\$s){return is_string(\$s)?\$s:\$s;}");
@@ -15,7 +19,7 @@ function current_user_can(){return true;} function get_current_user_id(){return 
 function wp_date($f,$t=null){return date($f,$t??time());} function human_time_diff($t){return '2 hours';}
 function wc_format_decimal($n,$dp=false){return $dp===false?(string)$n:number_format((float)$n,$dp,'.','');}
 function wc_price($n){return '$'.number_format((float)$n,2);} function get_woocommerce_currency(){return 'AUD';} function wc_get_price_decimals(){return 2;}
-function wc_get_orders($a){ return !empty($a['paginate']) ? (object)['total'=>2,'orders'=>[],'max_num_pages'=>0] : []; } class WP_Query{ public $found_posts=4; function __construct($a){} } function wc_get_order_statuses(){return ['wc-processing'=>'Processing'];} function get_posts($a){return [];}
+function wc_get_order($id){return null;} function wc_get_orders($a){ return !empty($a['paginate']) ? (object)['total'=>2,'orders'=>[],'max_num_pages'=>0] : []; } class WP_Query{ public $found_posts=4; function __construct($a){} } function wc_get_order_statuses(){return ['wc-processing'=>'Processing'];} function get_posts($a){return [];}
 function get_user_meta(){return [];} function rest_url($p){return 'https://givsen.com/wp-json/'.$p;} function wp_json_encode($v){return json_encode($v);}
 function wc_get_base_location(){return ['country'=>'AU'];} function apply_filters($h,$v){return $v;} function function_exists_(){}
 

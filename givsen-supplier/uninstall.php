@@ -23,7 +23,7 @@ delete_transient( 'gsup_schedules_ok' );
 foreach (
 	array(
 		'gsup_sync_enabled', 'gsup_sync_prices', 'gsup_sync_email', 'gsup_sync_run', 'gsup_sync_last', 'gsup_price_shipping',
-		'gsup_auto_order', 'gsup_auto_pay', 'gsup_auto_loss_guard', 'gsup_complete_on_tracking', 'gsup_ship_pref',
+		'gsup_auto_order', 'gsup_auto_pay', 'gsup_combine_seller', 'gsup_combine_log', 'gsup_auto_loss_guard', 'gsup_complete_on_tracking', 'gsup_ship_pref',
 		'gsup_late_notrack_days', 'gsup_late_grace_days', 'gsup_delivered_email', 'gsup_complete_when',
 		'gsup_stock_min', 'gsup_stock_cap',
 		'gsup_reviews_publish', 'gsup_fallback_phone', // gsup_reviews_publish: left by 0.8.0–0.8.1.

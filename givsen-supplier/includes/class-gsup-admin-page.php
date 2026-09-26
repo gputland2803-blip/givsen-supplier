@@ -819,6 +819,7 @@ class GSUP_Admin_Page {
 		}
 		echo '</td></tr>';
 		echo '<tr><th scope="row">Payment</th><td><label><input type="checkbox" name="pay" value="yes"' . checked( 'no' !== get_option( 'gsup_auto_pay', 'yes' ), true, false ) . '> Pay straight away with the payment method saved on your AliExpress account</label><p class="description">Off: orders wait on AliExpress for you to pay them (e.g. several at once).</p></td></tr>';
+		echo '<tr><th scope="row">Same seller</th><td><label><input type="checkbox" name="combine" value="yes"' . checked( GSUP_Orders::combine(), true, false ) . '> Trial: send items from the same seller (and warehouse) to AliExpress together</label><p class="description">For orders with several items from one seller. AliExpress’s documentation doesn’t say whether it then makes one order with one delivery fee, so each try is recorded below (order numbers back, what AliExpress charged vs. the items quoted on their own). Order numbers are matched back to each item. If AliExpress refuses the combined request, each item is placed on its own as usual. Off: one AliExpress order per item.</p></td></tr>';
 		echo '<tr><th scope="row"><label for="gsup_ship_pref">Shipping method</label></th><td><select id="gsup_ship_pref" name="ship_pref">';
 		foreach (
 			array(
@@ -849,6 +850,53 @@ class GSUP_Admin_Page {
 		echo '</tbody></table>';
 		echo '<p class="gsup-meta">Anything that can’t be placed — not linked to an exact option, gone from AliExpress, out of stock, no delivery to that country, or would lose money — is left for you with the reason on the order and an email to ' . esc_html( get_option( 'gsup_sync_email', get_option( 'admin_email' ) ) ) . '.</p>';
 		echo '<p><button type="submit" class="button button-primary">Save automatic ordering</button></p></form>';
+		self::render_combine_log();
+	}
+
+	/** What each "same seller" trial sent and got back — the evidence for keeping it on or switching it off. */
+	private static function render_combine_log() {
+		$log = GSUP_Orders::combine_log();
+		if ( ! $log && ! GSUP_Orders::combine() ) {
+			return;
+		}
+		echo '<h3>Combined orders so far</h3>';
+		if ( ! $log ) {
+			echo '<p class="gsup-meta">None yet — the first order with several items from one seller will show here.</p>';
+			return;
+		}
+		echo '<p class="gsup-meta">“Quoted on their own” is the items’ cost with each one’s own delivery fee. If AliExpress charged about the same, combining isn’t saving anything; if it keeps making one order per item, it isn’t combining at all.</p>';
+		echo '<table class="widefat striped"><thead><tr><th>When</th><th>Order</th><th>Items sent together</th><th>AliExpress replied</th><th>Quoted on their own</th><th>AliExpress charged</th></tr></thead><tbody>';
+		foreach ( $log as $e ) {
+			$quoted = 0.0;
+			$items  = array();
+			foreach ( (array) $e['lines'] as $l ) {
+				$quoted += (float) $l['cost'];
+				$items[] = esc_html( $l['name'] . ' × ' . (int) $l['qty'] ) . ' <span class="gsup-meta">(' . esc_html( gsup_money( $l['cost'] ) . ', delivery ' . gsup_money( $l['fee'] ) . ( $l['orders'] ? ' → ' . implode( ', ', $l['orders'] ) : '' ) ) . ')</span>';
+			}
+			$charged = 0.0;
+			$known   = (bool) $e['orders'];
+			foreach ( (array) $e['orders'] as $o ) {
+				if ( ! is_array( $o ) || null === $o['amount'] ) {
+					$known = false;
+					break;
+				}
+				$charged += (float) $o['amount'];
+			}
+			$replies = array(
+				'one'     => 'One order: ' . implode( ', ', array_keys( (array) $e['orders'] ) ),
+				'split'   => count( (array) $e['orders'] ) . ' orders: ' . implode( ', ', array_keys( (array) $e['orders'] ) ),
+				'error'   => 'Refused — placed one by one. ' . $e['error'],
+				'unknown' => 'No clear answer — check AliExpress. ' . $e['error'],
+			);
+			$order = wc_get_order( (int) $e['order_id'] );
+			echo '<tr><td>' . esc_html( wp_date( 'j M Y, g:ia', (int) $e['at'] ) ) . '</td>';
+			echo '<td>' . ( $order ? '<a href="' . esc_url( $order->get_edit_order_url() ) . '">#' . esc_html( $e['order_no'] ) . '</a>' : '#' . esc_html( $e['order_no'] ) ) . '</td>';
+			echo '<td>' . implode( '<br>', $items ) . '</td>';
+			echo '<td>' . esc_html( $replies[ $e['result'] ] ?? $e['result'] ) . '</td>';
+			echo '<td>' . esc_html( gsup_money( $quoted ) ) . '</td>';
+			echo '<td>' . ( $known ? esc_html( gsup_money( $charged ) ) : '<span class="gsup-meta">Not known yet</span>' ) . '</td></tr>';
+		}
+		echo '</tbody></table>';
 	}
 
 	private static function render_eta() {
@@ -1428,6 +1476,7 @@ class GSUP_Admin_Page {
 		$pref = isset( $_POST['ship_pref'] ) ? sanitize_key( wp_unslash( $_POST['ship_pref'] ) ) : 'cheapest_tracked';
 		update_option( 'gsup_auto_order', isset( $_POST['auto'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_auto_pay', isset( $_POST['pay'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_combine_seller', isset( $_POST['combine'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_auto_loss_guard', isset( $_POST['guard'] ) ? 'yes' : 'no', false );
 		$when = isset( $_POST['complete_when'] ) ? sanitize_key( wp_unslash( $_POST['complete_when'] ) ) : 'tracking';
 		update_option( 'gsup_complete_when', in_array( $when, array( 'tracking', 'delivered', 'no' ), true ) ? $when : 'tracking', false );

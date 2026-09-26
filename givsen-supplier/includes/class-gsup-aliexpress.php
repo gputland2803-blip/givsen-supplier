@@ -593,6 +593,8 @@ class GSUP_AliExpress {
 			'on_sale'    => '' === $status || 'onSelling' === $status,
 			'ship_to'    => $ship_to,
 			'skus'       => $skus,
+			// The seller's store — used to put items from the same seller in one AliExpress order.
+			'store_id'   => (string) ( $result['ae_store_info']['store_id'] ?? '' ),
 		);
 	}
 
@@ -922,7 +924,7 @@ class GSUP_AliExpress {
 	/**
 	 * An AliExpress order's status, amount and tracking.
 	 *
-	 * @return array|WP_Error {status, logistics_status, amount, currency, tracking: [{number, carrier}]}
+	 * @return array|WP_Error {products[], store_id, status, logistics_status, amount, currency, tracking: [{number, carrier}]}
 	 */
 	public static function get_order( $ae_order_id ) {
 		return self::parse_order( self::request( 'aliexpress.trade.ds.order.get', self::order_params( $ae_order_id ) ), $ae_order_id );
@@ -969,8 +971,19 @@ class GSUP_AliExpress {
 				);
 			}
 		}
+		$products = array();
+		$children = $r['child_order_list'] ?? null;
+		foreach ( self::items( $children, isset( $children['aeop_child_order_info'] ) ? 'aeop_child_order_info' : 'ae_child_order_info' ) as $c ) {
+			$pid = (string) self::pick( $c, array( 'product_id', 'productId' ), '' );
+			if ( '' !== $pid ) {
+				$products[] = $pid;
+			}
+		}
+		$store  = $r['store_info'] ?? array();
 		$amount = $r['order_amount'] ?? null;
 		return array(
+			'products'         => $products, // AliExpress product IDs in this order.
+			'store_id'         => is_array( $store ) ? (string) self::pick( $store, array( 'store_id' ), '' ) : '',
 			'status'           => (string) ( $r['order_status'] ?? '' ),
 			'logistics_status' => (string) ( $r['logistics_status'] ?? '' ),
 			'amount'           => null === $amount ? null : self::money( $amount ),

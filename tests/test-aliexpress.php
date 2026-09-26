@@ -78,6 +78,13 @@ $o=GSUP_AliExpress::get_order('8123456789012345');
 ok(!is_wp_error($o) && $o['tracking'][0]['number']==='LP00123456789CN' && $o['amount']===17.4,'order tracking + amount parsed');
 $GLOBALS['replies'][]=json_encode(['aliexpress_trade_ds_order_get_response'=>['result'=>['order_status'=>'WAIT_SELLER_SEND_GOODS','logistics_info_list'=>[]]]]);
 $o=GSUP_AliExpress::get_order('1'); ok(!is_wp_error($o) && $o['tracking']===[],'no tracking yet');
+// Order contents and seller (to match a combined request's order numbers back to its items)
+$GLOBALS['replies'][]=json_encode(['aliexpress_trade_ds_order_get_response'=>['result'=>['order_status'=>'PLACE_ORDER_SUCCESS','store_info'=>['store_id'=>1102345678,'store_name'=>'AU Jewels'],'child_order_list'=>['ae_child_order_info'=>[['product_id'=>1005006000000001,'product_count'=>1],['product_id'=>1005006000000002,'product_count'=>2]]],'logistics_info_list'=>[]]]]);
+$o=GSUP_AliExpress::get_order('81');
+ok(!is_wp_error($o) && $o['products']===['1005006000000001','1005006000000002'] && $o['store_id']==='1102345678','order: products in it and the seller parsed');
+$GLOBALS['replies'][]=json_encode(['aliexpress_trade_ds_order_get_response'=>['result'=>['order_status'=>'PLACE_ORDER_SUCCESS','child_order_list'=>['aeop_child_order_info'=>['product_id'=>'1005006000000003']],'logistics_info_list'=>[]]]]);
+$o=GSUP_AliExpress::get_order('82');
+ok(!is_wp_error($o) && $o['products']===['1005006000000003'] && $o['store_id']==='','order: single child (older wrapper) parsed, no store info');
 
 // Pricing incl. delivery
 ok(GSUP_Creator::price_for(10,3)==='25.95','price_for 10+3 ×2 → 25.95 (got '.GSUP_Creator::price_for(10,3).')');
@@ -99,6 +106,7 @@ if (class_exists('\WpOrg\Requests\Requests')) {
   $pairs=[]; for($i=1;$i<=12;$i++) $pairs[]=[(string)(100000+$i),'AU'];
   $r=GSUP_AliExpress::get_products($pairs);
   ok(count($r)===12 && $r['100005|AU']['title']==='P100005' && $r['100005|AU']['skus'][0]['sku_id']==='9100005','parallel products mapped to right keys');
+  ok($r['100005|AU']['store_id']==='1000050','listing carries its seller (store ID)');
   ok(\WpOrg\Requests\Requests::$log===[5,5,2],'sent in chunks of 5: '.json_encode(\WpOrg\Requests\Requests::$log));
   $o=GSUP_AliExpress::get_orders(['8123456789012345','8123456789012346','8123456789012345']);
   ok(count($o)===2 && $o['8123456789012346']['tracking'][0]['number']==='LP8123456789012346','parallel orders deduped & mapped');
