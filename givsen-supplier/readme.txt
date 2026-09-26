@@ -1,0 +1,39 @@
+=== Givsen Supplier ===
+Contributors: givsen
+Requires at least: 6.4
+Tested up to: 7.0
+Requires PHP: 7.4
+WC requires at least: 8.0
+WC tested up to: 11.1
+Stable tag: 0.5.0
+License: Proprietary
+
+Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
+
+== Description ==
+
+* Product ID stored on the product; SKU ID, ships-from and option stored on each variation. Renaming never breaks a link.
+* Import list fed by the Givsen Supplier Chrome extension (or by pasting a link).
+* Connects to the AliExpress Dropshipping API to fill in exact option details.
+* Creates draft store products from AliExpress listings, one per warehouse, with your pricing rule.
+* Daily sync with AliExpress for stock, cost and removed listings.
+* Order panel with the exact option to buy, copy-ready address, and fields for AliExpress order and tracking numbers.
+
+See SPEC.md for the full behaviour and regression checklist.
+
+== Changelog ==
+
+= 0.5.0 =
+* Daily sync: stock, cost, optional price updates, removed products to draft, gone options out of stock, one summary email. Sync now, last-run report, product-list badges, order-panel warning.
+
+= 0.4.0 =
+* Category picker on Add to store (pre-ticked from the extension or last used); categories endpoint for the Chrome extension.
+
+= 0.3.0 =
+* Add to store: create draft WooCommerce products from AliExpress (per warehouse, chosen options, photos, supplier links, pricing rule). Pricing settings. Smarter connection renewal.
+
+= 0.2.0 =
+* AliExpress API connection (App Key/Secret, connect flow, automatic renewal), product tester, import-list auto-fill and "Check with AliExpress".
+
+= 0.1.0 =
+* First release: supplier fields, products-list column and filter, import list, signed extension endpoints, Order on AliExpress panel. HPOS compatible.

@@ -1,0 +1,87 @@
+/* Givsen Supplier admin */
+.gsup-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; line-height: 18px; text-decoration: none; white-space: nowrap; }
+.gsup-badge--on { background: #e7f5ea; color: #1e6b34; }
+.gsup-badge--off { background: #f0f0f1; color: #787c82; }
+a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
+.gsup-sub { display: block; font-size: 12px; color: #50575e; margin-top: 3px; }
+.gsup-sub--warn { color: #996800; }
+.gsup-sub--muted { color: #8c8f94; }
+.column-gsup_supplier { width: 150px; }
+.gsup-meta { color: #646970; font-size: 12px; }
+.gsup-note { padding: 0 12px; color: #50575e; }
+
+/* Variation fields */
+.gsup-variation-fields { clear: both; border-top: 1px solid #eee; margin-top: 8px; padding-top: 4px; overflow: hidden; }
+.gsup-variation-title { font-weight: 600; margin: 6px 0 0; }
+
+/* Import list */
+.gsup-intro { max-width: 820px; }
+.gsup-manual { margin: 12px 0 8px; background: #fff; border: 1px solid #dcdcde; padding: 8px 14px; max-width: 900px; }
+.gsup-manual summary { cursor: pointer; font-weight: 600; }
+.gsup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+.gsup-import-table { margin-top: 8px; clear: both; }
+.gsup-import-table td { vertical-align: top; }
+.gsup-col-img { width: 64px; }
+.gsup-col-img img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; background: #f0f0f1; }
+.gsup-col-action { width: 340px; }
+.gsup-link-form { display: flex; gap: 6px; align-items: flex-start; }
+.gsup-link-form .select2-container { flex: 1; min-width: 0; }
+.gsup-row-actions { margin-top: 6px; font-size: 12px; }
+.gsup-danger { color: #b32d2e; }
+.gsup-already { font-size: 12px; margin-bottom: 6px; color: #1e6b34; }
+.gsup-empty { padding: 24px !important; text-align: center; color: #646970; }
+.gsup-row--dismissed { opacity: .7; }
+.gsup-pager { margin-top: 10px; }
+.gsup-settings code { font-size: 13px; padding: 4px 8px; }
+.gsup-key { user-select: all; }
+
+/* Order panel */
+.gsup-ready { padding: 10px 12px; border-left: 4px solid; margin: 4px 0 12px; font-weight: 600; }
+.gsup-ready--go { border-color: #00a32a; background: #edfaef; }
+.gsup-ready--stop { border-color: #d63638; background: #fcf0f1; }
+.gsup-ready--done { border-color: #8c8f94; background: #f6f7f7; }
+.gsup-order { display: flex; flex-wrap: wrap; gap: 20px; }
+.gsup-order h4 { margin: 0 0 8px; }
+.gsup-order-items { flex: 3 1 420px; min-width: 0; }
+.gsup-order-address { flex: 2 1 300px; min-width: 0; }
+.gsup-items td { padding: 12px; }
+.gsup-item-head { font-size: 14px; margin-bottom: 2px; }
+.gsup-qty { color: #50575e; }
+.gsup-supplier { margin-top: 8px; }
+.gsup-pick { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 0; }
+.gsup-pick dt { color: #646970; }
+.gsup-pick dd { margin: 0; }
+.gsup-warn { margin-top: 8px; color: #b32d2e; }
+.gsup-warn--soft { color: #996800; }
+.gsup-fields { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.gsup-fields label { display: flex; flex-direction: column; font-size: 12px; color: #50575e; flex: 1 1 180px; }
+.gsup-fields input { margin-top: 2px; width: 100%; }
+.gsup-address { width: 100%; border-collapse: collapse; }
+.gsup-address th { text-align: left; font-weight: normal; color: #646970; padding: 5px 10px 5px 0; vertical-align: top; width: 38%; }
+.gsup-address td { padding: 5px 0; vertical-align: top; }
+.gsup-addr-val { font-weight: 600; }
+.gsup-copy { vertical-align: middle; margin-left: 4px !important; }
+.gsup-copy.gsup-copied { color: #00a32a !important; border-color: #00a32a !important; }
+
+/* AliExpress API */
+.gsup-api-note { font-size: 12px; color: #996800; margin-top: 4px; }
+.gsup-api-note--ok { color: #1e6b34; }
+.gsup-test-form { margin-bottom: 12px; }
+.gsup-test-result { display: flex; gap: 12px; align-items: center; margin: 12px 0 8px; max-width: 900px; }
+.gsup-test-result img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; background: #f0f0f1; }
+.gsup-sku-table { max-width: 900px; }
+
+/* Add to store */
+.gsup-create-cta { margin: 0 0 6px; }
+.gsup-warehouses .button { margin: 0 6px 6px 0; }
+.gsup-create-form h2, .gsup-wrap h2 + .gsup-meta { max-width: 900px; }
+.gsup-sku-table .check-column { width: 2.2em; padding: 8px 0 8px 10px; vertical-align: middle; }
+.gsup-create-btn[disabled] { opacity: .7; }
+.gsup-cat-box { max-width: 520px; max-height: 260px; overflow-y: auto; background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 8px 12px; }
+.gsup-cat-box label { display: block; padding-top: 3px; padding-bottom: 3px; }
+
+/* Sync */
+.gsup-badge--bad { background: #fcf0f1; color: #b32d2e; }
+.gsup-sub--bad { color: #b32d2e; }
+.gsup-sync-last { background: #fff; border: 1px solid #dcdcde; padding: 4px 14px; max-width: 900px; }
+.gsup-sync-last ul { margin: 0 0 10px 18px; list-style: disc; }

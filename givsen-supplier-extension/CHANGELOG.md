@@ -1,0 +1,15 @@
+# Givsen Supplier (Chrome extension) — Changelog
+
+## 0.3.0 — 2026-09-26
+- "Category in your store" dropdown on the Add to Givsen card, filled with your store's categories (needs plugin 0.4.0). Remembers the last one you picked. The choice is carried to the Add to store screen.
+
+## 0.2.0 — 2026-09-26
+- After sending, shows the option as AliExpress confirmed it (when the store is connected to the AliExpress API), or why it couldn't be checked.
+
+## 0.1.0 — 2026-09-26
+First release (stage 2).
+- "Add to Givsen" button on AliExpress product pages (aliexpress.com and aliexpress.us), hidden elsewhere.
+- Reads the product ID from the link and works out the selected option's SKU ID from the option data AliExpress embeds in the page, matched against the options you've picked.
+- Check-before-send card: product ID, option text, ships-from and SKU ID (editable). Tells you which option still needs picking.
+- Sends to the store's import list over a signed request (connection key never leaves your browser). Reports whether the item is already linked in the store.
+- Settings page (toolbar icon): site address + connection key, Save & test.
