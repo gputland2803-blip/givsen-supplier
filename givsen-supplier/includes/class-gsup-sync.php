@@ -2,7 +2,8 @@
 /**
  * Daily sync with AliExpress, run in small batches through WooCommerce's job queue (Action Scheduler).
  *
- * Updates: stock, cost (_gsup_cost), and — only if switched on — the regular price from the pricing rule.
+ * Updates: stock, cost (_gsup_cost), delivery fee (_gsup_ship_cost), and — only if switched on — the regular
+ * price from the pricing rule. Flags products whose margin a cost rise has pushed below the minimum.
  * Never touches: titles, descriptions, images, categories, sale prices.
  *
  * Removed on AliExpress:
@@ -123,6 +124,8 @@ class GSUP_Sync {
 			'stock_changes' => 0,
 			'cost_changes'  => 0,
 			'price_changes' => 0,
+			'ship_changes'  => 0,
+			'low_margin'    => array(), // product IDs whose cost went up and margin is now below the minimum
 			'removed'       => array(), // product IDs drafted/flagged
 			'options_gone'  => array(), // variation/simple IDs newly out because the option is gone
 			'back'          => array(), // product IDs back on AliExpress after being drafted by sync
@@ -169,7 +172,7 @@ class GSUP_Sync {
 				return $ship;
 			}
 		}
-		return GSUP_AliExpress::default_ship_to();
+		return gsup_quote_country( '' );
 	}
 
 	/**
@@ -223,6 +226,9 @@ class GSUP_Sync {
 		delete_post_meta( $product_id, self::M_STATUS );
 
 		$targets = $product->is_type( 'variable' ) ? $product->get_children() : array( $product_id );
+		$freight = self::freight_for( $ae, $targets, $ship_to, $cache );
+		$rose    = false;
+		GSUP_Profit::$paused = true;
 		foreach ( $targets as $target_id ) {
 			$item   = wc_get_product( $target_id );
 			$sku_id = (string) get_post_meta( $target_id, GSUP_META_SKU, true );
@@ -242,13 +248,17 @@ class GSUP_Sync {
 				self::mark_option_gone( $item, $report );
 				continue;
 			}
-			self::apply( $item, $sku, $report );
+			$rose = self::apply( $item, $sku, $report, $freight ) || $rose;
 		}
+		GSUP_Profit::$paused = false;
 		if ( $product->is_type( 'variable' ) ) {
 			WC_Product_Variable::sync( $product_id );
 		}
 		update_post_meta( $product_id, self::M_SYNCED, time() );
 		wc_delete_product_transients( $product_id );
+		if ( GSUP_Profit::refresh_flag( $product_id ) && $rose ) {
+			$report['low_margin'][] = $product_id;
+		}
 		return 'ok';
 	}
 
@@ -304,7 +314,37 @@ class GSUP_Sync {
 		$report['options_gone'][] = $id;
 	}
 
-	private static function apply( WC_Product $item, array $sku, array &$report ) {
+	/**
+	 * Delivery quote for a product, asked once per AliExpress product and country per batch.
+	 * A failed quote just leaves the stored delivery fee as it was.
+	 */
+	private static function freight_for( array $ae, array $targets, $ship_to, array &$cache ) {
+		$sku_id = '';
+		foreach ( $targets as $id ) {
+			$sku_id = (string) get_post_meta( $id, GSUP_META_SKU, true );
+			if ( '' !== $sku_id && GSUP_AliExpress::find_sku( $ae, $sku_id ) ) {
+				break;
+			}
+			$sku_id = '';
+		}
+		if ( '' === $sku_id && $ae['skus'] ) {
+			$sku_id = $ae['skus'][0]['sku_id'];
+		}
+		if ( '' === $sku_id ) {
+			return null;
+		}
+		$key = 'freight|' . $ae['product_id'] . '|' . $ship_to;
+		if ( ! array_key_exists( $key, $cache ) ) {
+			$options       = GSUP_AliExpress::freight( $ae['product_id'], $sku_id, $ship_to );
+			$cache[ $key ] = is_wp_error( $options ) ? null : GSUP_AliExpress::choose_freight( $options );
+		}
+		return $cache[ $key ];
+	}
+
+	/**
+	 * @return bool Whether this option's cost (with delivery) went up.
+	 */
+	private static function apply( WC_Product $item, array $sku, array &$report, $freight = null ) {
 		$id = $item->get_id();
 		delete_post_meta( $id, self::M_GONE );
 		$changed = false;
@@ -326,15 +366,32 @@ class GSUP_Sync {
 			}
 		}
 
+		$old_total = (float) get_post_meta( $id, GSUP_META_COST, true ) + (float) get_post_meta( $id, GSUP_META_SHIP_COST, true );
+		if ( $freight ) {
+			$fee = wc_format_decimal( $freight['fee'], 2 );
+			if ( (string) get_post_meta( $id, GSUP_META_SHIP_COST, true ) !== (string) $fee ) {
+				$item->update_meta_data( GSUP_META_SHIP_COST, $fee );
+				$changed = true;
+				++$report['ship_changes'];
+			}
+			if ( (string) get_post_meta( $id, GSUP_META_SHIP_METHOD, true ) !== (string) $freight['code'] ) {
+				$item->update_meta_data( GSUP_META_SHIP_METHOD, (string) $freight['code'] );
+				$changed = true;
+			}
+		}
+		$ship = $freight ? (float) $freight['fee'] : (float) get_post_meta( $id, GSUP_META_SHIP_COST, true );
+
 		$cost = (string) $sku['price'];
+		$rose = false;
 		if ( '' !== $cost && (float) $cost > 0 ) {
-			if ( (string) get_post_meta( $id, '_gsup_cost', true ) !== $cost ) {
-				$item->update_meta_data( '_gsup_cost', $cost );
+			if ( (string) get_post_meta( $id, GSUP_META_COST, true ) !== $cost ) {
+				$item->update_meta_data( GSUP_META_COST, $cost );
 				$changed = true;
 				++$report['cost_changes'];
 			}
+			$rose = $old_total > 0 && ( (float) $cost + $ship ) > $old_total + 0.004;
 			if ( self::update_prices() ) {
-				$price = GSUP_Creator::price_for( $cost );
+				$price = GSUP_Creator::price_for( $cost, $ship );
 				if ( '' !== $price && (string) $item->get_regular_price() !== (string) $price ) {
 					$item->set_regular_price( $price );
 					$changed = true;
@@ -345,6 +402,7 @@ class GSUP_Sync {
 		if ( $changed ) {
 			$item->save();
 		}
+		return $rose;
 	}
 
 	private static function finish( array $run ) {
@@ -362,7 +420,7 @@ class GSUP_Sync {
 
 	private static function email( array $last ) {
 		$r = $last['report'];
-		if ( ! $r['removed'] && ! $r['options_gone'] && ! $r['back'] && ! $r['errors'] ) {
+		if ( ! $r['removed'] && ! $r['options_gone'] && ! $r['back'] && ! $r['errors'] && empty( $r['low_margin'] ) ) {
 			return;
 		}
 		$lines   = array();
@@ -386,6 +444,14 @@ class GSUP_Sync {
 			$lines[] = 'Back on sale on AliExpress (still in draft — publish them if you want them back):';
 			foreach ( $r['back'] as $id ) {
 				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . admin_url( 'post.php?post=' . (int) $id . '&action=edit' );
+			}
+			$lines[] = '';
+		}
+		if ( ! empty( $r['low_margin'] ) ) {
+			$lines[] = 'AliExpress cost went up and your margin is now below ' . GSUP_Profit::min_margin() . '% — check the price:';
+			foreach ( $r['low_margin'] as $id ) {
+				$m       = GSUP_Profit::product_summary( wc_get_product( $id ) );
+				$lines[] = '  • ' . gsup_product_label( $id ) . ( $m ? ' (margin ' . GSUP_Profit::pct( $m['margin_min'] ) . ')' : '' ) . ' — ' . admin_url( 'post.php?post=' . (int) $id . '&action=edit' );
 			}
 			$lines[] = '';
 		}

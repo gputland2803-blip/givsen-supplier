@@ -13,6 +13,13 @@ define( 'GSUP_META_SHIP', '_gsup_ship_from' );
 define( 'GSUP_META_OPTION', '_gsup_ae_option' );
 define( 'GSUP_ITEM_AE_ORDER', '_gsup_ae_order_no' );
 define( 'GSUP_ITEM_TRACKING', '_gsup_tracking_no' );
+define( 'GSUP_META_COST', '_gsup_cost' );             // AliExpress item cost (store currency).
+define( 'GSUP_META_SHIP_COST', '_gsup_ship_cost' );   // AliExpress delivery fee for one item.
+define( 'GSUP_META_SHIP_METHOD', '_gsup_ship_method' ); // Delivery method that fee is for.
+define( 'GSUP_ITEM_CARRIER', '_gsup_carrier' );       // Carrier AliExpress reported with the tracking number.
+define( 'GSUP_ITEM_UNIT_COST', '_gsup_unit_cost' );   // Cost of one item (incl. shipping) when the order was placed.
+define( 'GSUP_ITEM_AE_COST', '_gsup_ae_cost' );       // What the AliExpress order cost (quoted, or paid once known).
+define( 'GSUP_ITEM_PROBLEM', '_gsup_auto_problem' );  // Why automatic ordering couldn't place this item.
 
 /**
  * Pull an AliExpress product ID out of an ID, a product link, or a mobile/share link.
@@ -51,6 +58,19 @@ function gsup_parse_sku_id( $input ) {
 		return $m[1];
 	}
 	return '';
+}
+
+/**
+ * Which delivery country to ask AliExpress about for a warehouse: Australia and United States
+ * warehouses are asked about their own country, anything else about the store's country.
+ */
+function gsup_quote_country( $ship_from ) {
+	return in_array( $ship_from, array( 'AU', 'US' ), true ) ? $ship_from : GSUP_AliExpress::default_ship_to();
+}
+
+/** Money for admin screens, without the HTML wc_price() adds. */
+function gsup_money( $amount ) {
+	return html_entity_decode( wp_strip_all_tags( wc_price( (float) $amount ) ), ENT_QUOTES );
 }
 
 function gsup_ae_url( $ae_product_id ) {

@@ -391,6 +391,7 @@ class GSUP_AliExpress {
 			}
 			$skus[] = array(
 				'sku_id'    => $sku_id,
+				'sku_attr'  => (string) ( $s['sku_attr'] ?? ( $s['id'] ?? '' ) ), // What AliExpress needs to place an order.
 				'option'    => implode( ' · ', $parts ),
 				'ship_from' => $ship,
 				'price'     => $price,
@@ -422,5 +423,318 @@ class GSUP_AliExpress {
 			}
 		}
 		return null;
+	}
+
+	/** First value found under any of these keys. */
+	private static function pick( array $a, array $keys, $default = '' ) {
+		foreach ( $keys as $k ) {
+			if ( isset( $a[ $k ] ) && '' !== $a[ $k ] && null !== $a[ $k ] ) {
+				return $a[ $k ];
+			}
+		}
+		return $default;
+	}
+
+	/** The "result" node of a method's response, whatever wrapper AliExpress used. */
+	private static function result_of( array $data, $response_key ) {
+		$wrap = isset( $data[ $response_key ] ) ? $data[ $response_key ] : $data;
+		if ( isset( $wrap['result'] ) && is_array( $wrap['result'] ) ) {
+			return $wrap['result'];
+		}
+		return is_array( $wrap ) ? $wrap : array();
+	}
+
+	/** A money amount from "12.34", 12.34, "AU $12.34" or {amount: "12.34"}. */
+	private static function money( $v ) {
+		if ( is_array( $v ) ) {
+			$v = self::pick( $v, array( 'amount', 'value', 'cent' ), '' );
+		}
+		if ( is_numeric( $v ) ) {
+			return (float) $v;
+		}
+		if ( preg_match( '/(\d+(?:[.,]\d+)?)/', str_replace( ',', '', (string) $v ), $m ) ) {
+			return (float) $m[1];
+		}
+		return null;
+	}
+
+	/** Errors that mean "this API method isn't available to your app", so an older equivalent is worth trying. */
+	private static function method_unavailable( $e ) {
+		if ( ! is_wp_error( $e ) || 'gsup_ae_api' !== $e->get_error_code() ) {
+			return false;
+		}
+		$d = $e->get_error_data();
+		$c = strtolower( ( is_array( $d ) ? $d['ae_code'] . ' ' . $d['ae_msg'] : '' ) . ' ' . $e->get_error_message() );
+		return (bool) preg_match( '/invalidmethod|invalid method|permission|not\s*allowed|api\s*not\s*exist/', $c );
+	}
+
+	/* ------------------------------------------------------------ shipping */
+
+	/**
+	 * Delivery options for one option of a product to a country, cheapest first.
+	 *
+	 * @return array|WP_Error [{code, name, fee, currency, min_days, max_days, tracked}]
+	 */
+	public static function freight( $ae_product_id, $sku_id, $ship_to, $qty = 1 ) {
+		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD';
+		$ship_to  = strtoupper( (string) $ship_to );
+		$data     = self::request(
+			'aliexpress.ds.freight.query',
+			array(
+				'queryDeliveryReq' => wp_json_encode(
+					array(
+						'quantity'      => max( 1, (int) $qty ),
+						'shipToCountry' => $ship_to,
+						'productId'     => (string) $ae_product_id,
+						'selectedSkuId' => (string) $sku_id,
+						'language'      => 'en_US',
+						'currency'      => $currency,
+						'locale'        => 'en_US',
+					)
+				),
+			)
+		);
+		if ( self::method_unavailable( $data ) ) {
+			return self::freight_legacy( $ae_product_id, $sku_id, $ship_to, $qty, $currency );
+		}
+		if ( is_wp_error( $data ) ) {
+			return $data;
+		}
+		$r = self::result_of( $data, 'aliexpress_ds_freight_query_response' );
+		if ( isset( $r['success'] ) && ! filter_var( $r['success'], FILTER_VALIDATE_BOOLEAN ) ) {
+			$msg = (string) self::pick( $r, array( 'msg', 'message', 'code' ), 'no delivery options' );
+			return new WP_Error( 'gsup_ae_freight', 'AliExpress has no delivery to ' . $ship_to . ' for this option: ' . $msg );
+		}
+		$out = array();
+		foreach ( self::items( $r['delivery_options'] ?? null, 'delivery_option_d_t_o' ) as $o ) {
+			$free = ! empty( $o['free_shipping'] ) && filter_var( $o['free_shipping'], FILTER_VALIDATE_BOOLEAN );
+			$fee  = $free ? 0.0 : self::money( self::pick( $o, array( 'shipping_fee_format', 'shipping_fee_cent', 'shipping_fee' ), '' ) );
+			$code = (string) self::pick( $o, array( 'code', 'service_name', 'logistics_service_name' ) );
+			if ( '' === $code || null === $fee ) {
+				continue;
+			}
+			$out[] = array(
+				'code'     => $code,
+				'name'     => (string) self::pick( $o, array( 'company', 'service_name' ), $code ),
+				'fee'      => round( $fee, 2 ),
+				'currency' => (string) self::pick( $o, array( 'shipping_fee_currency' ), $currency ),
+				'min_days' => (int) self::pick( $o, array( 'min_delivery_days' ), 0 ),
+				'max_days' => (int) self::pick( $o, array( 'max_delivery_days', 'guaranteed_delivery_days' ), 0 ),
+				'tracked'  => ! isset( $o['tracking'] ) || filter_var( $o['tracking'], FILTER_VALIDATE_BOOLEAN ),
+			);
+		}
+		return self::sort_freight( $out, $ship_to );
+	}
+
+	/** Older freight method, for apps without aliexpress.ds.freight.query. */
+	private static function freight_legacy( $ae_product_id, $sku_id, $ship_to, $qty, $currency ) {
+		$data = self::request(
+			'aliexpress.logistics.buyer.freight.calculate',
+			array(
+				'param_aeop_freight_calculate_for_buyer_d_t_o' => wp_json_encode(
+					array(
+						'country_code'   => $ship_to,
+						'product_id'     => (string) $ae_product_id,
+						'product_num'    => max( 1, (int) $qty ),
+						'sku_id'         => (string) $sku_id,
+						'price_currency' => $currency,
+					)
+				),
+			)
+		);
+		if ( is_wp_error( $data ) ) {
+			return $data;
+		}
+		$r   = self::result_of( $data, 'aliexpress_logistics_buyer_freight_calculate_response' );
+		$out = array();
+		$list = $r['aeop_freight_calculate_result_for_buyer_d_t_o_list'] ?? null;
+		$list = self::items( $list, isset( $list['aeop_freight_calculate_result_for_buyer_dto'] ) ? 'aeop_freight_calculate_result_for_buyer_dto' : 'aeop_freight_calculate_result_for_buyer_d_t_o' );
+		foreach ( $list as $o ) {
+			$fee = self::money( $o['freight'] ?? '' );
+			if ( empty( $o['service_name'] ) || null === $fee ) {
+				continue;
+			}
+			$days  = array_map( 'intval', explode( '-', (string) ( $o['estimated_delivery_time'] ?? '' ) ) );
+			$out[] = array(
+				'code'     => (string) $o['service_name'],
+				'name'     => (string) $o['service_name'],
+				'fee'      => round( $fee, 2 ),
+				'currency' => is_array( $o['freight'] ) && ! empty( $o['freight']['currency_code'] ) ? (string) $o['freight']['currency_code'] : $currency,
+				'min_days' => $days[0] ?? 0,
+				'max_days' => end( $days ),
+				'tracked'  => true,
+			);
+		}
+		return self::sort_freight( $out, $ship_to );
+	}
+
+	private static function sort_freight( array $out, $ship_to ) {
+		if ( ! $out ) {
+			return new WP_Error( 'gsup_ae_freight', 'AliExpress has no delivery to ' . $ship_to . ' for this option.' );
+		}
+		usort(
+			$out,
+			function ( $a, $b ) {
+				return $a['fee'] === $b['fee'] ? $a['max_days'] - $b['max_days'] : ( $a['fee'] < $b['fee'] ? -1 : 1 );
+			}
+		);
+		return $out;
+	}
+
+	/**
+	 * The delivery option to use, per Settings → Automatic ordering → Shipping method.
+	 * 'cheapest_tracked' (default) · 'cheapest' · 'fastest'.
+	 */
+	public static function choose_freight( array $options ) {
+		if ( ! $options ) {
+			return null;
+		}
+		$pref = get_option( 'gsup_ship_pref', 'cheapest_tracked' );
+		if ( 'fastest' === $pref ) {
+			$best = null;
+			foreach ( $options as $o ) {
+				$days = $o['max_days'] ? $o['max_days'] : 999;
+				if ( null === $best || $days < $best[0] || ( $days === $best[0] && $o['fee'] < $best[1]['fee'] ) ) {
+					$best = array( $days, $o );
+				}
+			}
+			return $best[1];
+		}
+		if ( 'cheapest_tracked' === $pref ) {
+			foreach ( $options as $o ) {
+				if ( $o['tracked'] ) {
+					return $o;
+				}
+			}
+		}
+		return $options[0];
+	}
+
+	/* -------------------------------------------------------------- orders */
+
+	/**
+	 * Place an order on AliExpress.
+	 *
+	 * @param array $address  logistics_address fields (full_name, contact_person, mobile_no, phone_country, country, province, city, address, address2, zip).
+	 * @param array $items    [{product_id, qty, sku_attr, service, memo}]
+	 * @param string $out_id  Our reference (order-item), for your records on AliExpress.
+	 * @return string[]|WP_Error AliExpress order numbers.
+	 */
+	public static function place_order( array $address, array $items, $out_id ) {
+		$lines = array();
+		foreach ( $items as $it ) {
+			$lines[] = array(
+				'product_id'             => (string) $it['product_id'],
+				'product_count'          => (int) $it['qty'],
+				'sku_attr'               => (string) $it['sku_attr'],
+				'logistics_service_name' => (string) $it['service'],
+				'order_memo'             => (string) ( $it['memo'] ?? '' ),
+			);
+		}
+		$request = wp_json_encode(
+			array(
+				'out_order_id'      => (string) $out_id,
+				'logistics_address' => array_merge( array( 'locale' => 'en_US' ), $address ),
+				'product_items'     => $lines,
+			)
+		);
+		$params = array( 'param_place_order_request4_open_api_d_t_o' => $request );
+		if ( 'no' !== get_option( 'gsup_auto_pay', 'yes' ) ) {
+			$params['ds_extend_request'] = wp_json_encode(
+				array(
+					'payment' => array(
+						'pay_currency' => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'AUD',
+						'try_to_pay'   => 'true',
+					),
+				)
+			);
+		}
+		$method = 'aliexpress.ds.order.create';
+		$data   = self::request( $method, $params );
+		if ( self::method_unavailable( $data ) ) {
+			unset( $params['ds_extend_request'] );
+			$method = 'aliexpress.trade.buy.placeorder';
+			$data   = self::request( $method, $params );
+		}
+		if ( is_wp_error( $data ) ) {
+			return $data;
+		}
+		$r  = self::result_of( $data, str_replace( '.', '_', $method ) . '_response' );
+		$ok = isset( $r['is_success'] ) ? filter_var( $r['is_success'], FILTER_VALIDATE_BOOLEAN ) : ! empty( $r['order_list'] );
+		if ( ! $ok ) {
+			$code = (string) self::pick( $r, array( 'error_code', 'code' ), '' );
+			$msg  = (string) self::pick( $r, array( 'error_msg', 'msg', 'message' ), 'AliExpress didn’t accept the order' );
+			return new WP_Error( 'gsup_ae_order', self::friendly_order_error( $code, $msg ), array( 'ae_code' => $code, 'ae_msg' => $msg ) );
+		}
+		$ids  = array();
+		$list = $r['order_list'] ?? array();
+		if ( is_array( $list ) && isset( $list['number'] ) ) {
+			$list = $list['number'];
+		}
+		foreach ( (array) $list as $n ) {
+			if ( is_scalar( $n ) && '' !== (string) $n ) {
+				$ids[] = (string) $n;
+			}
+		}
+		if ( ! $ids ) {
+			return new WP_Error( 'gsup_ae_order_unknown', 'AliExpress accepted the order but didn’t send back an order number. Check your AliExpress orders before trying again.' );
+		}
+		return $ids;
+	}
+
+	private static function friendly_order_error( $code, $msg ) {
+		$map = array(
+			'ADDRESS'           => 'AliExpress didn’t accept the delivery address',
+			'DELIVERY_METHOD'   => 'That shipping method isn’t available for this option any more',
+			'INVENTORY'         => 'Not enough stock on AliExpress',
+			'SKU'               => 'The option isn’t available on AliExpress any more',
+			'PRICE'             => 'AliExpress couldn’t price the order in your currency',
+			'BLACKLIST'         => 'AliExpress blocked this account from ordering — check your AliExpress account',
+			'PRODUCT_NOT_EXIST' => 'The product isn’t on AliExpress any more',
+		);
+		foreach ( $map as $needle => $friendly ) {
+			if ( false !== stripos( $code, $needle ) ) {
+				return $friendly . ' (' . $msg . ')';
+			}
+		}
+		return $msg . ( $code ? ' (' . $code . ')' : '' );
+	}
+
+	/**
+	 * An AliExpress order's status, amount and tracking.
+	 *
+	 * @return array|WP_Error {status, logistics_status, amount, currency, tracking: [{number, carrier}]}
+	 */
+	public static function get_order( $ae_order_id ) {
+		$data = self::request(
+			'aliexpress.trade.ds.order.get',
+			array( 'single_order_query' => wp_json_encode( array( 'order_id' => (string) $ae_order_id ) ) )
+		);
+		if ( is_wp_error( $data ) ) {
+			return $data;
+		}
+		$r = self::result_of( $data, 'aliexpress_trade_ds_order_get_response' );
+		if ( ! $r || ( isset( $r['order_status'] ) && '' === (string) $r['order_status'] && empty( $r['logistics_info_list'] ) ) ) {
+			return new WP_Error( 'gsup_ae_order_missing', 'AliExpress has no order ' . $ae_order_id . ' on this account.' );
+		}
+		$tracking = array();
+		$list     = $r['logistics_info_list'] ?? null;
+		foreach ( self::items( $list, isset( $list['aeop_order_logistics_info'] ) ? 'aeop_order_logistics_info' : 'ae_order_logistics_info' ) as $l ) {
+			$no = trim( (string) self::pick( $l, array( 'logistics_no', 'logistics_number', 'tracking_number' ) ) );
+			if ( '' !== $no ) {
+				$tracking[] = array(
+					'number'  => $no,
+					'carrier' => (string) self::pick( $l, array( 'logistics_service', 'logistics_service_name', 'carrier_name' ) ),
+				);
+			}
+		}
+		$amount = $r['order_amount'] ?? null;
+		return array(
+			'status'           => (string) ( $r['order_status'] ?? '' ),
+			'logistics_status' => (string) ( $r['logistics_status'] ?? '' ),
+			'amount'           => null === $amount ? null : self::money( $amount ),
+			'currency'         => is_array( $amount ) ? (string) self::pick( $amount, array( 'currency_code', 'currency' ) ) : '',
+			'tracking'         => $tracking,
+		);
 	}
 }

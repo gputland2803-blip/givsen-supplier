@@ -1,6 +1,7 @@
 <?php
 /**
- * "Supplier" column and a Linked / Not linked filter on Products → All Products.
+ * "Supplier" column (link, options, ships-from, margin, country restriction) and a
+ * Linked / Not linked / Low margin filter on Products → All Products.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -96,10 +97,28 @@ class GSUP_Products_Column {
 		if ( ! $product->is_type( 'variable' ) && get_post_meta( $post_id, '_gsup_option_gone', true ) ) {
 			echo '<span class="gsup-sub gsup-sub--bad">Option no longer on AliExpress</span>';
 		}
+		self::render_margin( $product );
+		if ( GSUP_CBR::enabled() ) {
+			$cbr = GSUP_CBR::label( $post_id );
+			echo '<span class="gsup-sub' . ( '' === $cbr ? ' gsup-sub--muted' : '' ) . '">' . esc_html( '' !== $cbr ? $cbr : 'Shown to: all countries' ) . '</span>';
+		}
 		$synced = (int) get_post_meta( $post_id, '_gsup_synced_at', true );
 		if ( $synced ) {
 			echo '<span class="gsup-sub gsup-sub--muted">Synced ' . esc_html( human_time_diff( $synced ) ) . ' ago</span>';
 		}
+	}
+
+	private static function render_margin( WC_Product $product ) {
+		$m = GSUP_Profit::product_summary( $product );
+		if ( ! $m ) {
+			echo '<span class="gsup-sub gsup-sub--muted">Margin: cost not known</span>';
+			return;
+		}
+		$margin = GSUP_Profit::pct( $m['margin_min'] ) . ( round( $m['margin_min'] * 100 ) !== round( $m['margin_max'] * 100 ) ? '–' . GSUP_Profit::pct( $m['margin_max'] ) : '' );
+		$profit = gsup_money( $m['profit_min'] ) . ( round( $m['profit_min'], 2 ) !== round( $m['profit_max'], 2 ) ? '–' . gsup_money( $m['profit_max'] ) : '' );
+		$cost   = gsup_money( $m['cost_min'] ) . ( round( $m['cost_min'], 2 ) !== round( $m['cost_max'], 2 ) ? '–' . gsup_money( $m['cost_max'] ) : '' );
+		$title  = 'AliExpress cost with delivery: ' . $cost . '. Margin is profit ÷ your price, after payment fees, before tax.';
+		echo '<span class="gsup-sub gsup-margin' . ( $m['low'] ? ' gsup-sub--bad' : '' ) . '" title="' . esc_attr( $title ) . '">' . ( $m['low'] ? 'Low margin ' : 'Margin ' ) . esc_html( $margin ) . ' · ' . esc_html( $profit ) . '</span>';
 	}
 
 	public static function filter_dropdown( $post_type ) {
@@ -111,6 +130,7 @@ class GSUP_Products_Column {
 		foreach ( array(
 			'linked'   => 'Linked to AliExpress',
 			'unlinked' => 'Not linked',
+			'low'      => 'Low margin',
 		) as $value => $label ) {
 			echo '<option value="' . esc_attr( $value ) . '"' . selected( $current, $value, false ) . '>' . esc_html( $label ) . '</option>';
 		}
@@ -122,11 +142,14 @@ class GSUP_Products_Column {
 			return;
 		}
 		$value = isset( $_GET['gsup_link'] ) ? sanitize_key( wp_unslash( $_GET['gsup_link'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		if ( ! in_array( $value, array( 'linked', 'unlinked' ), true ) ) {
+		if ( ! in_array( $value, array( 'linked', 'unlinked', 'low' ), true ) ) {
 			return;
 		}
 		$meta_query   = (array) $query->get( 'meta_query' );
-		$meta_query[] = array(
+		$meta_query[] = 'low' === $value ? array(
+			'key'   => GSUP_Profit::M_LOW,
+			'value' => 'yes',
+		) : array(
 			'key'     => GSUP_META_PRODUCT,
 			'compare' => 'linked' === $value ? 'EXISTS' : 'NOT EXISTS',
 		);

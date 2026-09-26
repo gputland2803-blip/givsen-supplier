@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Givsen Supplier
- * Description:       Links WooCommerce products to AliExpress by ID (product ID on the product, SKU ID on each variation) and adds an "Order on AliExpress" panel to every order. Replaces DSers.
- * Version:           0.5.0
+ * Description:       Links WooCommerce products to AliExpress by ID (product ID on the product, SKU ID on each variation), places paid orders on AliExpress automatically and brings tracking back, and shows your margin on every product and order. Replaces DSers.
+ * Version:           0.6.0
  * Author:            Givsen
  * Requires at least: 6.4
  * Requires PHP:      7.4
@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'GSUP_VERSION', '0.5.0' );
+define( 'GSUP_VERSION', '0.6.0' );
 define( 'GSUP_DB_VERSION', '3' );
 define( 'GSUP_FILE', __FILE__ );
 define( 'GSUP_DIR', plugin_dir_path( __FILE__ ) );
@@ -28,6 +28,9 @@ function gsup_deactivate() {
 	wp_clear_scheduled_hook( 'gsup_keep_alive' );
 	if ( class_exists( 'GSUP_Sync' ) ) {
 		GSUP_Sync::unschedule();
+	}
+	if ( class_exists( 'GSUP_Orders' ) ) {
+		GSUP_Orders::unschedule();
 	}
 }
 
@@ -52,7 +55,12 @@ function gsup_boot() {
 	require_once GSUP_DIR . 'includes/class-gsup-aliexpress.php';
 	require_once GSUP_DIR . 'includes/class-gsup-creator.php';
 	require_once GSUP_DIR . 'includes/class-gsup-sync.php';
+	require_once GSUP_DIR . 'includes/class-gsup-profit.php';
+	require_once GSUP_DIR . 'includes/class-gsup-cbr.php';
+	require_once GSUP_DIR . 'includes/class-gsup-orders.php';
 	GSUP_Sync::init();
+	GSUP_Profit::init();
+	GSUP_Orders::init();
 
 	// Keep the AliExpress connection alive on quiet days.
 	add_action( 'gsup_keep_alive', array( 'GSUP_AliExpress', 'keep_alive' ) );

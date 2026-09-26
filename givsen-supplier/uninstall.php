@@ -1,7 +1,8 @@
 <?php
 /**
  * Removes the import list, the plugin's settings and the AliExpress connection.
- * Supplier links, costs and sync notes on products, and AliExpress order/tracking numbers on orders are kept,
+ * Supplier links, costs, delivery fees and sync notes on products, CBR restrictions, and AliExpress order/tracking
+ * numbers and costs on orders are kept,
  * so reinstalling picks up exactly where you left off.
  */
 
@@ -18,10 +19,19 @@ delete_option( 'gsup_price_multiplier' );
 delete_option( 'gsup_price_add' );
 delete_option( 'gsup_price_round' );
 wp_clear_scheduled_hook( 'gsup_keep_alive' );
-foreach ( array( 'gsup_sync_enabled', 'gsup_sync_prices', 'gsup_sync_email', 'gsup_sync_run', 'gsup_sync_last' ) as $gsup_opt ) {
+foreach (
+	array(
+		'gsup_sync_enabled', 'gsup_sync_prices', 'gsup_sync_email', 'gsup_sync_run', 'gsup_sync_last', 'gsup_price_shipping',
+		'gsup_auto_order', 'gsup_auto_pay', 'gsup_auto_loss_guard', 'gsup_complete_on_tracking', 'gsup_ship_pref',
+		'gsup_min_margin', 'gsup_fee_percent', 'gsup_fee_fixed',
+		'gsup_cbr_enabled', 'gsup_cbr_map', 'gsup_cbr_type_key', 'gsup_cbr_countries_key', 'gsup_cbr_type_value', 'gsup_cbr_format',
+	) as $gsup_opt
+) {
 	delete_option( $gsup_opt );
 }
 if ( function_exists( 'as_unschedule_all_actions' ) ) {
 	as_unschedule_all_actions( 'gsup_sync_start', array(), 'givsen-supplier' );
 	as_unschedule_all_actions( 'gsup_sync_batch', array(), 'givsen-supplier' );
+	as_unschedule_all_actions( 'gsup_tracking_check', array(), 'givsen-supplier' );
+	as_unschedule_all_actions( 'gsup_place_order' );
 }

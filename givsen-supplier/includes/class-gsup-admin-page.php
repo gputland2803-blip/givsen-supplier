@@ -15,7 +15,7 @@ class GSUP_Admin_Page {
 		add_filter( 'woocommerce_screen_ids', array( __CLASS__, 'screen_ids' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ), 20 );
 		add_action( 'admin_notices', array( __CLASS__, 'product_screen_notices' ) );
-		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now' ) as $action ) {
+		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply' ) as $action ) {
 			add_action( 'admin_post_gsup_' . $action, array( __CLASS__, 'handle_' . $action ) );
 		}
 	}
@@ -256,8 +256,11 @@ class GSUP_Admin_Page {
 
 	private static function render_settings() {
 		self::render_ae_settings();
+		self::render_auto();
 		self::render_pricing();
+		self::render_profit();
 		self::render_sync();
+		self::render_cbr();
 		$key  = (string) get_option( 'gsup_secret' );
 		$site = home_url( '/' );
 		echo '<hr><h2>Chrome extension connection</h2>';
@@ -348,7 +351,14 @@ class GSUP_Admin_Page {
 			echo '<p class="gsup-meta">Stock and cost shown are for delivery to the United States.</p>';
 		}
 
-		$rule = GSUP_Creator::rule();
+		$rule    = GSUP_Creator::rule();
+		$freight = GSUP_Creator::quote( $product['product_id'], $groups[ $want ][0]['sku_id'], $want );
+		$fee     = is_wp_error( $freight ) ? 0 : (float) $freight['fee'];
+		if ( is_wp_error( $freight ) ) {
+			echo '<div class="notice notice-warning inline"><p>No delivery quote from AliExpress, so prices below don’t include delivery: ' . esc_html( $freight->get_error_message() ) . '</p></div>';
+		} else {
+			echo '<p class="gsup-meta">Delivery to ' . esc_html( gsup_ship_from_label( gsup_quote_country( $want ) ) ) . ': <strong>' . esc_html( 0.0 === $fee ? 'free' : gsup_money( $fee ) ) . '</strong> with ' . esc_html( $freight['name'] ) . ( $freight['max_days'] ? ' (' . (int) $freight['min_days'] . '–' . (int) $freight['max_days'] . ' days)' : '' ) . '. Saved on the product and ' . ( $rule['shipping'] ? 'included in your price.' : 'not included in your price (Pricing setting).' ) . '</p>';
+		}
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-create-form">';
 		echo '<input type="hidden" name="action" value="gsup_create">';
 		echo '<input type="hidden" name="ae" value="' . esc_attr( $product['product_id'] ) . '">';
@@ -356,7 +366,7 @@ class GSUP_Admin_Page {
 		wp_nonce_field( 'gsup_create_' . $product['product_id'] );
 
 		echo '<h2>2. Which options?</h2>';
-		echo '<table class="widefat striped gsup-sku-table"><thead><tr><td class="check-column"><input type="checkbox" class="gsup-check-all" checked aria-label="Select all"></td><th>Option</th><th>Your cost</th><th>Your price</th><th>Stock</th></tr></thead><tbody>';
+		echo '<table class="widefat striped gsup-sku-table"><thead><tr><td class="check-column"><input type="checkbox" class="gsup-check-all" checked aria-label="Select all"></td><th>Option</th><th>Your cost</th><th>Delivery</th><th>Your price</th><th>Margin</th><th>Stock</th></tr></thead><tbody>';
 		foreach ( $groups[ $want ] as $sku ) {
 			$in_store = gsup_find_option_links( $product['product_id'], $sku['sku_id'] );
 			$text     = GSUP_Creator::option_text( $sku );
@@ -365,12 +375,16 @@ class GSUP_Admin_Page {
 			if ( $in_store ) {
 				echo '<div class="gsup-meta">Already in your store</div>';
 			}
+			$price = (float) GSUP_Creator::price_for( $sku['price'], $fee );
+			$fig   = GSUP_Profit::figures( $price, (float) $sku['price'] + $fee );
 			echo '</td><td>' . esc_html( trim( $sku['price'] . ' ' . $sku['currency'] ) ) . '</td>';
-			echo '<td>' . wp_kses_post( wc_price( (float) GSUP_Creator::price_for( $sku['price'] ) ) ) . '</td>';
+			echo '<td>' . esc_html( is_wp_error( $freight ) ? '—' : ( 0.0 === $fee ? 'Free' : wc_format_decimal( $fee, 2 ) ) ) . '</td>';
+			echo '<td>' . wp_kses_post( wc_price( $price ) ) . '</td>';
+			echo '<td>' . esc_html( $fig ? GSUP_Profit::pct( $fig['margin'] ) : '—' ) . '</td>';
 			echo '<td>' . esc_html( null === $sku['stock'] ? 'In stock' : ( 0 === $sku['stock'] ? 'Out of stock' : (string) $sku['stock'] ) ) . '</td></tr>';
 		}
 		echo '</tbody></table>';
-		echo '<p class="gsup-meta">Prices use your pricing rule: cost × ' . esc_html( rtrim( rtrim( number_format( $rule['multiplier'], 2 ), '0' ), '.' ) ) . ( $rule['add'] ? ' + ' . esc_html( wc_format_decimal( $rule['add'], 2 ) ) : '' ) . ( $rule['round'] ? ', rounded to .95' : '' ) . '. <a href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '#gsup-pricing">Change it</a>.</p>';
+		echo '<p class="gsup-meta">Prices use your pricing rule: cost × ' . esc_html( rtrim( rtrim( number_format( $rule['multiplier'], 2 ), '0' ), '.' ) ) . ( $rule['add'] ? ' + ' . esc_html( wc_format_decimal( $rule['add'], 2 ) ) : '' ) . ( $rule['round'] ? ', rounded to .95' : '' ) . ( $rule['shipping'] ? ' (cost includes delivery)' : '' ) . '. <a href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '#gsup-pricing">Change it</a>.</p>';
 
 		// Categories: from the import row (chosen in the extension), else the last ones used.
 		$row_id   = isset( $_GET['row'] ) ? absint( $_GET['row'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -398,7 +412,7 @@ class GSUP_Admin_Page {
 	private static function render_pricing() {
 		$r = GSUP_Creator::rule();
 		echo '<hr><h2 id="gsup-pricing">Pricing for new products</h2>';
-		echo '<p>Used when you add a product from AliExpress. Your price = AliExpress cost × multiplier + extra amount.</p>';
+		echo '<p>Used when you add a product from AliExpress (and by the daily sync if price updates are on). Your price = AliExpress cost × multiplier + extra amount.</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="gsup_save_pricing">';
 		wp_nonce_field( 'gsup_save_pricing' );
@@ -406,7 +420,8 @@ class GSUP_Admin_Page {
 		echo '<tr><th scope="row"><label for="gsup_mult">Multiplier</label></th><td><input type="number" step="0.01" min="0.01" id="gsup_mult" name="multiplier" value="' . esc_attr( $r['multiplier'] ) . '" class="small-text"> <span class="gsup-meta">e.g. 2 = double the cost</span></td></tr>';
 		echo '<tr><th scope="row"><label for="gsup_add">Extra amount</label></th><td><input type="number" step="0.01" id="gsup_add" name="add" value="' . esc_attr( $r['add'] ) . '" class="small-text"> ' . esc_html( get_woocommerce_currency() ) . '</td></tr>';
 		echo '<tr><th scope="row">Rounding</th><td><label><input type="checkbox" name="round" value="yes"' . checked( $r['round'], true, false ) . '> Round up to .95 (e.g. 23.40 → 23.95)</label></td></tr>';
-		echo '<tr><th scope="row">Example</th><td>AliExpress cost 10.00 → your price <strong>' . wp_kses_post( wc_price( (float) GSUP_Creator::price_for( 10 ) ) ) . '</strong></td></tr>';
+		echo '<tr><th scope="row">Delivery</th><td><label><input type="checkbox" name="shipping" value="yes"' . checked( $r['shipping'], true, false ) . '> Add AliExpress’s delivery fee to the cost before applying the rule</label><p class="description">The fee is quoted by AliExpress for your shipping method preference and kept up to date by the daily sync.</p></td></tr>';
+		echo '<tr><th scope="row">Example</th><td>AliExpress cost 10.00' . ( $r['shipping'] ? ' + delivery 3.00' : '' ) . ' → your price <strong>' . wp_kses_post( wc_price( (float) GSUP_Creator::price_for( 10, 3 ) ) ) . '</strong></td></tr>';
 		echo '</tbody></table><p><button type="submit" class="button">Save pricing</button></p></form>';
 	}
 
@@ -415,20 +430,21 @@ class GSUP_Admin_Page {
 		$run     = GSUP_Sync::running();
 		$email   = get_option( 'gsup_sync_email', get_option( 'admin_email' ) );
 		echo '<hr><h2 id="gsup-sync">Daily sync with AliExpress</h2>';
-		echo '<p>Every day at about 3am it updates stock and your cost for every linked product, sets options AliExpress no longer sells to out of stock, and switches products AliExpress has removed to draft. It never changes titles, descriptions, photos or categories.</p>';
+		echo '<p>Every day at about 3am it updates stock, your cost and the delivery fee for every linked product, flags products whose margin a cost rise has pushed below your minimum, sets options AliExpress no longer sells to out of stock, and switches products AliExpress has removed to draft. It never changes titles, descriptions, photos or categories.</p>';
 
 		if ( $run ) {
 			echo '<div class="notice notice-info inline"><p><strong>Sync running:</strong> ' . (int) $run['pos'] . ' of ' . count( $run['ids'] ) . ' products checked. <a href="' . esc_url( gsup_admin_url( array( 'tab' => 'settings' ) ) ) . '#gsup-sync">Refresh</a> to see progress.</p></div>';
 		} elseif ( is_array( $last ) ) {
 			$r = $last['report'];
 			echo '<div class="gsup-sync-last"><p><strong>Last sync:</strong> ' . esc_html( wp_date( 'j M Y, g:ia', $last['finished'] ) ) . ( $last['manual'] ? ' (run by hand)' : '' ) . ' — checked ' . (int) $r['checked'] . ' of ' . (int) $last['total'] . ' products.</p><ul>';
-			echo '<li>Stock updated: ' . (int) $r['stock_changes'] . ' · Cost changes: ' . (int) $r['cost_changes'] . ( GSUP_Sync::update_prices() ? ' · Prices updated: ' . (int) $r['price_changes'] : '' ) . '</li>';
+			echo '<li>Stock updated: ' . (int) $r['stock_changes'] . ' · Cost changes: ' . (int) $r['cost_changes'] . ' · Delivery fee changes: ' . (int) ( $r['ship_changes'] ?? 0 ) . ( GSUP_Sync::update_prices() ? ' · Prices updated: ' . (int) $r['price_changes'] : '' ) . '</li>';
 			foreach (
 				array(
 					'removed'      => 'Removed on AliExpress (switched to draft)',
 					'options_gone' => 'Options no longer on AliExpress (out of stock)',
 					'back'         => 'Back on sale on AliExpress (still in draft)',
 					'missing'      => 'Not found today (will be drafted if still missing tomorrow)',
+					'low_margin'   => 'Cost went up — margin now below ' . GSUP_Profit::min_margin() . '%',
 				) as $key => $label
 			) {
 				if ( empty( $r[ $key ] ) ) {
@@ -460,6 +476,110 @@ class GSUP_Admin_Page {
 		echo '<tr><th scope="row">Prices</th><td><label><input type="checkbox" name="prices" value="yes"' . checked( GSUP_Sync::update_prices(), true, false ) . '> Also update my prices from the pricing rule when AliExpress costs change</label><p class="description">Off: only your cost is recorded and your prices stay as you set them. On: regular prices follow cost × your pricing rule (sale prices are never touched).</p></td></tr>';
 		echo '<tr><th scope="row"><label for="gsup_sync_email">Email summaries to</label></th><td><input type="email" id="gsup_sync_email" name="email" class="regular-text" value="' . esc_attr( $email ) . '"><p class="description">Only sent when something needs your attention.</p></td></tr>';
 		echo '</tbody></table><p><button type="submit" class="button">Save sync settings</button></p></form>';
+	}
+
+	private static function render_auto() {
+		echo '<hr><h2 id="gsup-auto">Automatic ordering</h2>';
+		echo '<p>When an order reaches <strong>Processing</strong> — paid, or a Givsen gift once the recipient claims it — each item is placed on AliExpress in the background with the customer’s address, and the AliExpress order number is saved on the order. Tracking numbers are fetched every few hours for every order with an AliExpress order number (including ones you place by hand).</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="gsup_save_auto">';
+		wp_nonce_field( 'gsup_save_auto' );
+		$pref = get_option( 'gsup_ship_pref', 'cheapest_tracked' );
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row">Place orders</th><td><label><input type="checkbox" name="auto" value="yes"' . checked( GSUP_Orders::enabled(), true, false ) . '> Place Processing orders on AliExpress automatically</label>';
+		if ( ! GSUP_AliExpress::is_connected() ) {
+			echo '<p class="description gsup-warn--soft">Connect AliExpress above first.</p>';
+		}
+		echo '</td></tr>';
+		echo '<tr><th scope="row">Payment</th><td><label><input type="checkbox" name="pay" value="yes"' . checked( 'no' !== get_option( 'gsup_auto_pay', 'yes' ), true, false ) . '> Pay straight away with the payment method saved on your AliExpress account</label><p class="description">Off: orders wait on AliExpress for you to pay them (e.g. several at once).</p></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_ship_pref">Shipping method</label></th><td><select id="gsup_ship_pref" name="ship_pref">';
+		foreach (
+			array(
+				'cheapest_tracked' => 'Cheapest with tracking',
+				'cheapest'         => 'Cheapest',
+				'fastest'          => 'Fastest',
+			) as $value => $label
+		) {
+			echo '<option value="' . esc_attr( $value ) . '"' . selected( $pref, $value, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select><p class="description">Also used for the delivery fee in your costs and prices.</p></td></tr>';
+		echo '<tr><th scope="row">Safety</th><td><label><input type="checkbox" name="guard" value="yes"' . checked( GSUP_Orders::loss_guard(), true, false ) . '> Don’t place an item if AliExpress would charge more than the customer paid for it</label></td></tr>';
+		echo '<tr><th scope="row">When tracking arrives</th><td><label><input type="checkbox" name="complete" value="yes"' . checked( GSUP_Orders::complete_on_tracking(), true, false ) . '> Mark the order Completed once every item has tracking</label><p class="description">WooCommerce then sends the customer the “order complete” email, which includes the tracking links.' . ( function_exists( 'ast_insert_tracking_number' ) ? ' Tracking is also added to Advanced Shipment Tracking.' : '' ) . '</p></td></tr>';
+		echo '</tbody></table>';
+		echo '<p class="gsup-meta">Anything that can’t be placed — not linked to an exact option, gone from AliExpress, out of stock, no delivery to that country, or would lose money — is left for you with the reason on the order and an email to ' . esc_html( get_option( 'gsup_sync_email', get_option( 'admin_email' ) ) ) . '.</p>';
+		echo '<p><button type="submit" class="button">Save automatic ordering</button></p></form>';
+	}
+
+	private static function render_profit() {
+		echo '<hr><h2 id="gsup-profit">Profit</h2>';
+		echo '<p>Margin is shown on the products list and on every order: your price minus the AliExpress cost with delivery and payment fees, as a share of your price (before tax).</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="gsup_save_profit">';
+		wp_nonce_field( 'gsup_save_profit' );
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row"><label for="gsup_min_margin">Flag margins below</label></th><td><input type="number" step="1" min="0" max="100" id="gsup_min_margin" name="min_margin" value="' . esc_attr( GSUP_Profit::min_margin() ) . '" class="small-text"> % <p class="description">Products under this show “Low margin” (and can be filtered). The daily sync emails you when a cost rise pushes a product under it.</p></td></tr>';
+		echo '<tr><th scope="row">Payment fees</th><td><input type="number" step="0.01" min="0" name="fee_percent" value="' . esc_attr( get_option( 'gsup_fee_percent', 0 ) ) . '" class="small-text"> % + <input type="number" step="0.01" min="0" name="fee_fixed" value="' . esc_attr( get_option( 'gsup_fee_fixed', 0 ) ) . '" class="small-text"> ' . esc_html( get_woocommerce_currency() ) . ' per order <p class="description">e.g. Stripe’s card fee. Leave at 0 to ignore fees.</p></td></tr>';
+		echo '</tbody></table><p><button type="submit" class="button">Save profit settings</button></p></form>';
+	}
+
+	private static function render_cbr() {
+		$k   = GSUP_CBR::keys();
+		$map = GSUP_CBR::map();
+		echo '<hr><h2 id="gsup-cbr">Country restrictions (CBR)</h2>';
+		echo '<p>Sets Country Based Restrictions on each product from where it ships, so new products are shown to the right country automatically. Only products whose options all ship from one warehouse are changed; restrictions you’ve set by hand are kept unless you choose to overwrite them.</p>';
+
+		// Inspector.
+		echo '<h3>1. Check how CBR saves its setting</h3>';
+		echo '<p class="gsup-meta">Set CBR by hand on one product (e.g. “Show only in Australia”), save it, then look at it here. The keys and values it shows go into step 2.</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-link-form" style="max-width:600px">';
+		echo '<input type="hidden" name="action" value="gsup_cbr_inspect">';
+		wp_nonce_field( 'gsup_cbr_inspect' );
+		echo '<select class="wc-product-search" name="product_id" style="width:100%" data-placeholder="Search your products…" data-action="woocommerce_json_search_products" data-allow_clear="true"></select>';
+		echo '<button type="submit" class="button">Look at this product</button></form>';
+		$key     = 'gsup_cbr_inspect_' . get_current_user_id();
+		$inspect = get_transient( $key );
+		if ( is_array( $inspect ) ) {
+			delete_transient( $key );
+			echo '<div class="gsup-sync-last"><p><strong>' . esc_html( gsup_product_label( $inspect['id'] ) ) . '</strong> — country-related settings found:</p>';
+			if ( ! $inspect['meta'] ) {
+				echo '<p class="gsup-warn--soft">None. Set a restriction on this product in CBR, click Update there, then look again.</p>';
+			} else {
+				echo '<table class="widefat striped"><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody>';
+				foreach ( $inspect['meta'] as $mk => $mv ) {
+					echo '<tr><td><code>' . esc_html( $mk ) . '</code></td><td><code>' . esc_html( is_scalar( $mv ) ? (string) $mv : wp_json_encode( $mv ) ) . '</code>' . ( is_array( $mv ) ? ' <span class="gsup-meta">(a list)</span>' : '' ) . '</td></tr>';
+				}
+				echo '</tbody></table>';
+				if ( isset( $inspect['meta'][ $k['type_key'] ] ) && isset( $inspect['meta'][ $k['countries_key'] ] ) ) {
+					echo '<p class="gsup-api-note gsup-api-note--ok">These match the keys in step 2.</p>';
+				}
+			}
+			echo '</div>';
+		}
+
+		echo '<h3>2. Settings</h3>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="gsup_save_cbr">';
+		wp_nonce_field( 'gsup_save_cbr' );
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row">Set restrictions</th><td><label><input type="checkbox" name="enabled" value="yes"' . checked( GSUP_CBR::enabled(), true, false ) . '> Set CBR on new products from where they ship</label></td></tr>';
+		echo '<tr><th scope="row">Show products from</th><td><table class="gsup-cbr-map"><tbody>';
+		$codes = array_unique( array_merge( array( 'AU', 'US', 'CN', 'GB', 'NZ', 'CA' ), array_keys( $map ) ) );
+		foreach ( $codes as $code ) {
+			$val = isset( $map[ $code ] ) ? implode( ', ', (array) $map[ $code ] ) : '';
+			echo '<tr><td>' . esc_html( GSUP_Creator::warehouse_label( $code ) ) . '</td><td>→ only in <input type="text" name="map[' . esc_attr( $code ) . ']" value="' . esc_attr( $val ) . '" class="regular-text" placeholder="Country codes, e.g. AU, NZ — blank = leave alone"></td></tr>';
+		}
+		echo '</tbody></table></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_cbr_type_key">Restriction type key</label></th><td><input type="text" id="gsup_cbr_type_key" name="type_key" value="' . esc_attr( $k['type_key'] ) . '" class="regular-text code"> = <input type="text" name="type_value" value="' . esc_attr( $k['type_value'] ) . '" class="small-text code" style="width:9em"><p class="description">The key and value CBR saves for “show only in these countries”.</p></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_cbr_countries_key">Countries key</label></th><td><input type="text" id="gsup_cbr_countries_key" name="countries_key" value="' . esc_attr( $k['countries_key'] ) . '" class="regular-text code"> saved as <select name="format"><option value="array"' . selected( $k['format'], 'array', false ) . '>a list</option><option value="csv"' . selected( $k['format'], 'csv', false ) . '>text, comma-separated</option></select></td></tr>';
+		echo '</tbody></table><p><button type="submit" class="button">Save country restrictions</button></p></form>';
+
+		echo '<h3>3. Existing products</h3>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="gsup_cbr_apply">';
+		wp_nonce_field( 'gsup_cbr_apply' );
+		echo '<p><label><input type="checkbox" name="overwrite" value="yes"> Also replace restrictions already set on a product</label></p>';
+		echo '<p><button type="submit" class="button"' . ( GSUP_CBR::enabled() ? '' : ' disabled' ) . ' data-gsup-confirm="Set country restrictions on your linked products from where they ship?">Apply to linked products</button>' . ( GSUP_CBR::enabled() ? '' : ' <span class="gsup-meta">Turn on “Set restrictions” first.</span>' ) . '</p>';
+		echo '</form>';
 	}
 
 	private static function render_ae_settings() {
@@ -772,6 +892,7 @@ class GSUP_Admin_Page {
 		update_option( 'gsup_price_multiplier', $mult > 0 ? $mult : 2, false );
 		update_option( 'gsup_price_add', $add, false );
 		update_option( 'gsup_price_round', $rnd, false );
+		update_option( 'gsup_price_shipping', isset( $_POST['shipping'] ) ? 'yes' : 'no', false ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
 		gsup_flash( 'Pricing saved.' );
 		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-pricing' );
 		exit;
@@ -799,6 +920,101 @@ class GSUP_Admin_Page {
 			gsup_flash( GSUP_Sync::running() ? 'A sync is already running.' : 'The sync couldn’t start — see the details below.', 'warning' );
 		}
 		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-sync' );
+		exit;
+	}
+
+	public static function handle_save_auto() {
+		self::guard( 'gsup_save_auto' );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
+		$pref = isset( $_POST['ship_pref'] ) ? sanitize_key( wp_unslash( $_POST['ship_pref'] ) ) : 'cheapest_tracked';
+		update_option( 'gsup_auto_order', isset( $_POST['auto'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_auto_pay', isset( $_POST['pay'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_auto_loss_guard', isset( $_POST['guard'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_complete_on_tracking', isset( $_POST['complete'] ) ? 'yes' : 'no', false );
+		// phpcs:enable
+		update_option( 'gsup_ship_pref', in_array( $pref, array( 'cheapest_tracked', 'cheapest', 'fastest' ), true ) ? $pref : 'cheapest_tracked', false );
+		gsup_flash( GSUP_Orders::enabled() ? 'Saved. New Processing orders will be placed on AliExpress automatically.' : 'Saved. Automatic ordering is off.' );
+		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-auto' );
+		exit;
+	}
+
+	public static function handle_save_profit() {
+		self::guard( 'gsup_save_profit' );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
+		update_option( 'gsup_min_margin', min( 100, max( 0, isset( $_POST['min_margin'] ) ? (float) $_POST['min_margin'] : 30 ) ), false );
+		update_option( 'gsup_fee_percent', max( 0, isset( $_POST['fee_percent'] ) ? (float) $_POST['fee_percent'] : 0 ), false );
+		update_option( 'gsup_fee_fixed', max( 0, isset( $_POST['fee_fixed'] ) ? (float) $_POST['fee_fixed'] : 0 ), false );
+		// phpcs:enable
+		$n = GSUP_Profit::refresh_all();
+		gsup_flash( 'Profit settings saved. Margins rechecked on ' . (int) $n . ' linked product(s).' );
+		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-profit' );
+		exit;
+	}
+
+	public static function handle_save_cbr() {
+		self::guard( 'gsup_save_cbr' );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
+		$map = array();
+		if ( isset( $_POST['map'] ) && is_array( $_POST['map'] ) ) {
+			foreach ( wp_unslash( $_POST['map'] ) as $code => $countries ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- cleaned below.
+				$code = gsup_sanitize_ship_from( sanitize_text_field( $code ) );
+				$list = GSUP_CBR::parse_countries( sanitize_text_field( $countries ) );
+				if ( '' !== $code && $list ) {
+					$map[ $code ] = $list;
+				}
+			}
+		}
+		update_option( 'gsup_cbr_map', $map, false );
+		update_option( 'gsup_cbr_enabled', isset( $_POST['enabled'] ) ? 'yes' : 'no', false );
+		foreach ( array( 'type_key', 'countries_key', 'type_value' ) as $field ) {
+			$value = isset( $_POST[ $field ] ) ? preg_replace( '/[^A-Za-z0-9_\-]/', '', wp_unslash( $_POST[ $field ] ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- reduced to a meta key.
+			update_option( 'gsup_cbr_' . $field, $value, false );
+		}
+		update_option( 'gsup_cbr_format', isset( $_POST['format'] ) && 'csv' === $_POST['format'] ? 'csv' : 'array', false );
+		// phpcs:enable
+		gsup_flash( 'Country restriction settings saved.' );
+		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-cbr' );
+		exit;
+	}
+
+	public static function handle_cbr_inspect() {
+		self::guard( 'gsup_cbr_inspect' );
+		$id = isset( $_POST['product_id'] ) ? absint( $_POST['product_id'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		if ( $id ) {
+			set_transient(
+				'gsup_cbr_inspect_' . get_current_user_id(),
+				array(
+					'id'   => $id,
+					'meta' => GSUP_CBR::inspect( $id ),
+				),
+				10 * MINUTE_IN_SECONDS
+			);
+		} else {
+			gsup_flash( 'Pick a product first.', 'error' );
+		}
+		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-cbr' );
+		exit;
+	}
+
+	public static function handle_cbr_apply() {
+		self::guard( 'gsup_cbr_apply' );
+		$results = GSUP_CBR::apply_all( isset( $_POST['overwrite'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$labels  = array(
+			'set'     => 'restriction set',
+			'same'    => 'already right',
+			'kept'    => 'kept your own restriction',
+			'mixed'   => 'ship from more than one warehouse (left alone)',
+			'no_ship' => 'ships-from not set (left alone)',
+			'no_rule' => 'no countries chosen for that warehouse',
+		);
+		$parts = array();
+		foreach ( $labels as $key => $label ) {
+			if ( ! empty( $results[ $key ] ) ) {
+				$parts[] = count( $results[ $key ] ) . ' ' . $label;
+			}
+		}
+		gsup_flash( $parts ? 'Country restrictions: ' . esc_html( implode( ' · ', $parts ) ) . '.' : 'No linked products found.', empty( $results['set'] ) ? 'info' : 'success' );
+		wp_safe_redirect( gsup_admin_url( array( 'tab' => 'settings' ) ) . '#gsup-cbr' );
 		exit;
 	}
 

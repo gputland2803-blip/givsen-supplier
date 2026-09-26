@@ -1,5 +1,17 @@
 # Givsen Supplier — Changelog
 
+## 0.6.0 — 2026-09-26
+Automatic ordering, tracking, profit, real shipping cost, CBR.
+- **Automatic ordering** (Settings → Automatic ordering, off until you turn it on): when an order reaches Processing — paid, or a Givsen gift once claimed — each item is placed on AliExpress in the background with the customer's address and the exact option, using your shipping method preference (cheapest with tracking by default). Optional automatic payment with your AliExpress account's saved method. The AliExpress order number, delivery method and cost are saved on the order.
+- Safety: items are only placed when they're linked to an exact option, still sold, in stock, deliverable to that country, and (unless switched off) cost less than the customer paid. Anything else is left for you with the reason on the order panel, an order note and an email. Items already on AliExpress are never placed twice; if AliExpress doesn't answer, it's not retried automatically.
+- Order panel: status line, "Place on AliExpress now" and "Check tracking now" buttons, AliExpress status, delivery method and carrier per item.
+- **Tracking**: every 4 hours, orders with AliExpress order numbers (automatic or typed in) are checked; tracking numbers and carriers come back into the order with a note. Order marked Completed once everything has tracking (optional, on by default). Tracking links in customer emails and My Account; sent to Advanced Shipment Tracking instead when it's installed.
+- **Profit**: margin and profit per product on the products list (range for variable products), red "Low margin" below your minimum (default 30%) and a "Low margin" filter. Cost, delivery and margin on the product editor. Profit per item and per order on the order panel, and a Profit column on the orders list. Each item's cost is saved at checkout so later cost changes don't rewrite past orders; the real AliExpress amount replaces the estimate once known. Optional payment fee (% + fixed) in Settings → Profit.
+- Daily sync flags products whose margin a cost rise has pushed below the minimum (report and email).
+- **Real shipping cost**: AliExpress's delivery fee is quoted when adding to store and kept up to date by the daily sync. Pricing rule can include it (on by default; Settings → Pricing). Add to store shows the delivery fee, method and margin per option.
+- **Country restrictions (CBR)** from ships-from (Settings → Country restrictions, off until you turn it on): warehouse → countries map (Australia → AU, United States → US to start). New products get the restriction automatically; "Apply to linked products" does existing ones, keeping restrictions you set by hand unless you choose to replace them. "Look at a product" shows exactly how CBR saved its setting so the keys can be matched. Products list shows "Shown to: …".
+- Uninstall also removes the new settings and scheduled checks (order data and product costs are kept).
+
 ## 0.5.0 — 2026-09-26
 Daily sync.
 - Every day at about 3am (WooCommerce's job queue, 15 products per batch): stock and AliExpress cost for every linked product and option.

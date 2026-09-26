@@ -78,6 +78,7 @@ class GSUP_Product_Fields {
 				'options' => gsup_ship_from_options_with( $ship ),
 			)
 		);
+		echo self::cost_line( $id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside.
 		echo '</div>';
 
 		echo '<div class="options_group show_if_variable"><p class="gsup-note">Each variation stores its own AliExpress SKU ID and ships-from country — open the <strong>Variations</strong> tab.</p></div>';
@@ -164,6 +165,7 @@ class GSUP_Product_Fields {
 				'wrapper_class' => 'form-row form-row-full',
 			)
 		);
+		echo self::cost_line( $id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside.
 		echo '</div>';
 	}
 
@@ -183,6 +185,27 @@ class GSUP_Product_Fields {
 		self::set_post_meta( $variation_id, GSUP_META_SHIP, isset( $_POST['gsup_ship'][ $i ] ) ? gsup_sanitize_ship_from( wp_unslash( $_POST['gsup_ship'][ $i ] ) ) : '' );
 		self::set_post_meta( $variation_id, GSUP_META_OPTION, isset( $_POST['gsup_option'][ $i ] ) ? mb_substr( sanitize_text_field( wp_unslash( $_POST['gsup_option'][ $i ] ) ), 0, 255 ) : '' );
 		// phpcs:enable
+	}
+
+	/** "AliExpress cost 10.00 + delivery 3.00 (CAINIAO_STANDARD) · margin 48%" — kept up to date by the daily sync. */
+	private static function cost_line( $id ) {
+		$cost = get_post_meta( $id, GSUP_META_COST, true );
+		if ( '' === $cost ) {
+			return '';
+		}
+		$ship   = get_post_meta( $id, GSUP_META_SHIP_COST, true );
+		$method = (string) get_post_meta( $id, GSUP_META_SHIP_METHOD, true );
+		$text   = 'AliExpress cost ' . gsup_money( $cost );
+		if ( '' !== $ship ) {
+			$text .= ' + delivery ' . ( 0.0 === (float) $ship ? 'free' : gsup_money( $ship ) ) . ( '' !== $method ? ' (' . $method . ')' : '' );
+		}
+		$product = wc_get_product( $id );
+		$fig     = $product ? GSUP_Profit::figures( $product->get_price(), GSUP_Profit::unit_cost( $id ) ) : null;
+		if ( $fig ) {
+			$text .= ' · margin at your current price ' . GSUP_Profit::pct( $fig['margin'] ) . ' (' . gsup_money( $fig['profit'] ) . ')';
+		}
+		$low = $fig && $fig['margin'] * 100 < GSUP_Profit::min_margin();
+		return '<p class="form-field gsup-cost-line' . ( $low ? ' gsup-sub--bad' : '' ) . '"><label>&nbsp;</label>' . esc_html( $text ) . '</p>';
 	}
 
 	private static function set_post_meta( $id, $key, $value ) {

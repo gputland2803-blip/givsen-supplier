@@ -6,7 +6,7 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 .gsup-sub { display: block; font-size: 12px; color: #50575e; margin-top: 3px; }
 .gsup-sub--warn { color: #996800; }
 .gsup-sub--muted { color: #8c8f94; }
-.column-gsup_supplier { width: 150px; }
+.column-gsup_supplier { width: 170px; }
 .gsup-meta { color: #646970; font-size: 12px; }
 .gsup-note { padding: 0 12px; color: #50575e; }
 
@@ -85,3 +85,20 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 .gsup-sub--bad { color: #b32d2e; }
 .gsup-sync-last { background: #fff; border: 1px solid #dcdcde; padding: 4px 14px; max-width: 900px; }
 .gsup-sync-last ul { margin: 0 0 10px 18px; list-style: disc; }
+
+/* Automatic ordering and profit */
+.gsup-auto { margin: -4px 0 12px; }
+.gsup-auto .button { margin-left: 4px; }
+.gsup-line-profit { margin-top: 6px; }
+.gsup-profit-title { margin-top: 14px !important; }
+.gsup-profit { border-collapse: collapse; min-width: 320px; }
+.gsup-profit th { text-align: left; font-weight: normal; color: #646970; padding: 3px 16px 3px 0; }
+.gsup-profit td { padding: 3px 0; text-align: right; }
+.gsup-profit-total th, .gsup-profit-total td { font-weight: 600; color: #1d2327; border-top: 1px solid #dcdcde; padding-top: 6px; }
+.gsup-profit--low td { color: #b32d2e; }
+.gsup-margin { font-weight: 600; }
+.gsup-cost-line { color: #50575e; }
+.gsup-variation-fields .gsup-cost-line { clear: both; padding: 0 !important; margin: 0 0 6px !important; }
+.gsup-variation-fields .gsup-cost-line label { display: none; }
+.gsup-cbr-map td { padding: 3px 12px 3px 0; }
+.column-gsup_profit { width: 100px; }

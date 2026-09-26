@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.5.0
+Stable tag: 0.6.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -18,10 +18,17 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 * Creates draft store products from AliExpress listings, one per warehouse, with your pricing rule.
 * Daily sync with AliExpress for stock, cost and removed listings.
 * Order panel with the exact option to buy, copy-ready address, and fields for AliExpress order and tracking numbers.
+* Automatic ordering on AliExpress when an order reaches Processing, and tracking numbers back into the order.
+* Profit and margin on every product and order, with low-margin flags.
+* AliExpress delivery fees in your costs and pricing rule.
+* Country Based Restrictions set from where each product ships.
 
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.6.0 =
+* Automatic ordering and tracking sync, profit/margin on products and orders, real AliExpress delivery fees in costs and pricing, CBR country restrictions from ships-from.
 
 = 0.5.0 =
 * Daily sync: stock, cost, optional price updates, removed products to draft, gone options out of stock, one summary email. Sync now, last-run report, product-list badges, order-panel warning.

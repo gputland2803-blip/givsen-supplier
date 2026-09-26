@@ -2,7 +2,8 @@
 /**
  * "Order on AliExpress" panel on the order edit screen (HPOS and legacy):
  * readiness, each item's AliExpress link and exact option, a copy-ready address,
- * and per-item fields for the AliExpress order number and tracking number.
+ * per-item fields for the AliExpress order number and tracking number, automatic-ordering status
+ * with "Place on AliExpress now" / "Check tracking now", and the order's profit.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -12,6 +13,65 @@ class GSUP_Order_Panel {
 	public static function init() {
 		add_action( 'add_meta_boxes', array( __CLASS__, 'register' ), 30 );
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save' ), 50 );
+		add_action( 'admin_post_gsup_place_now', array( __CLASS__, 'handle_place_now' ) );
+		add_action( 'admin_post_gsup_track_now', array( __CLASS__, 'handle_track_now' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'notices' ) );
+	}
+
+	/** Messages after the panel's buttons (shown on the order screen). */
+	public static function notices() {
+		$screen = get_current_screen();
+		$order  = function_exists( 'wc_get_page_screen_id' ) ? wc_get_page_screen_id( 'shop-order' ) : 'shop_order';
+		if ( $screen && in_array( $screen->id, array( 'shop_order', $order ), true ) ) {
+			gsup_render_flash();
+		}
+	}
+
+	private static function action_url( $action, WC_Order $order ) {
+		return wp_nonce_url( admin_url( 'admin-post.php?action=gsup_' . $action . '&order_id=' . $order->get_id() ), 'gsup_' . $action . '_' . $order->get_id() );
+	}
+
+	private static function action_order( $action ) {
+		$id = isset( $_GET['order_id'] ) ? absint( $_GET['order_id'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			wp_die( 'You do not have permission to do that.', 403 );
+		}
+		check_admin_referer( 'gsup_' . $action . '_' . $id );
+		$order = wc_get_order( $id );
+		if ( ! $order ) {
+			wp_die( 'Order not found.', 404 );
+		}
+		return $order;
+	}
+
+	public static function handle_place_now() {
+		$order  = self::action_order( 'place_now' );
+		$result = GSUP_Orders::place( $order->get_id(), true );
+		if ( is_wp_error( $result ) ) {
+			gsup_flash( esc_html( $result->get_error_message() ), 'error' );
+		} elseif ( $result['problems'] ) {
+			gsup_flash( 'Placed ' . (int) $result['placed'] . ' item(s) on AliExpress. ' . count( $result['problems'] ) . ' couldn’t be placed — see the reasons below.', $result['placed'] ? 'warning' : 'error' );
+		} elseif ( $result['placed'] ) {
+			gsup_flash( 'Placed ' . (int) $result['placed'] . ' item(s) on AliExpress.' );
+		} else {
+			gsup_flash( 'Nothing to place — every AliExpress item already has an order number.', 'info' );
+		}
+		wp_safe_redirect( $order->get_edit_order_url() );
+		exit;
+	}
+
+	public static function handle_track_now() {
+		$order  = self::action_order( 'track_now' );
+		$result = GSUP_Orders::check_order( $order->get_id() );
+		if ( is_wp_error( $result ) ) {
+			gsup_flash( 'Couldn’t check with AliExpress: ' . esc_html( $result->get_error_message() ), 'error' );
+		} elseif ( $result ) {
+			gsup_flash( 'Tracking received for ' . (int) $result . ' item(s).' );
+		} else {
+			gsup_flash( 'No tracking on AliExpress yet — it usually appears a few days after the seller ships. It’s checked automatically every few hours.', 'info' );
+		}
+		wp_safe_redirect( $order->get_edit_order_url() );
+		exit;
 	}
 
 	public static function register() {
@@ -105,11 +165,13 @@ class GSUP_Order_Panel {
 
 		list( $state, $message ) = self::readiness( $order );
 		echo '<div class="gsup-ready gsup-ready--' . esc_attr( $state ) . '">' . esc_html( $message ) . '</div>';
+		self::render_auto( $order );
 
 		echo '<div class="gsup-order">';
 		echo '<div class="gsup-order-items"><h4>Items to buy</h4>';
 		echo '<table class="widefat gsup-items"><tbody>';
 
+		$profit = GSUP_Profit::order_summary( $order );
 		foreach ( $order->get_items() as $item_id => $item ) {
 			/** @var WC_Order_Item_Product $item */
 			$product  = $item->get_product();
@@ -163,16 +225,46 @@ class GSUP_Order_Panel {
 				echo '</div>';
 			}
 
+			$problem = (string) $item->get_meta( GSUP_ITEM_PROBLEM );
+			if ( '' !== $problem && '' === (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) ) {
+				echo '<div class="gsup-warn"><strong>Not placed automatically:</strong> ' . esc_html( $problem ) . '</div>';
+			} elseif ( '' !== $problem ) {
+				echo '<div class="gsup-warn">' . esc_html( $problem ) . '</div>';
+			}
+			$method  = (string) $item->get_meta( GSUP_Orders::I_METHOD );
+			$status  = (string) $item->get_meta( GSUP_Orders::I_AE_STATUS );
+			$carrier = (string) $item->get_meta( GSUP_ITEM_CARRIER );
+			if ( '' !== $method || '' !== $status || '' !== $carrier ) {
+				$bits = array();
+				if ( '' !== $method ) {
+					$bits[] = 'Delivery: ' . $method;
+				}
+				if ( '' !== $status ) {
+					$bits[] = 'AliExpress status: ' . self::ae_status_label( $status );
+				}
+				if ( '' !== $carrier ) {
+					$bits[] = 'Carrier: ' . $carrier;
+				}
+				echo '<div class="gsup-meta">' . esc_html( implode( ' · ', $bits ) ) . '</div>';
+			}
+			if ( $profit && isset( $profit['lines'][ $item_id ] ) ) {
+				self::render_line_profit( $profit['lines'][ $item_id ], $order );
+			}
+
 			$ae_order = (string) $item->get_meta( GSUP_ITEM_AE_ORDER );
 			$tracking = (string) $item->get_meta( GSUP_ITEM_TRACKING );
 			echo '<div class="gsup-fields">';
 			echo '<label>AliExpress order number<input type="text" name="gsup_items[' . (int) $item_id . '][ae_order]" value="' . esc_attr( $ae_order ) . '" autocomplete="off"></label>';
-			echo '<label>Tracking number<input type="text" name="gsup_items[' . (int) $item_id . '][tracking]" value="' . esc_attr( $tracking ) . '" autocomplete="off"></label>';
+			$track_link = '' !== $tracking ? ' <a href="' . esc_url( GSUP_Orders::tracking_url( preg_split( '/[\s,;]+/', $tracking )[0] ) ) . '" target="_blank" rel="noopener noreferrer">Track ↗</a>' : '';
+			echo '<label>Tracking number' . $track_link . '<input type="text" name="gsup_items[' . (int) $item_id . '][tracking]" value="' . esc_attr( $tracking ) . '" autocomplete="off"></label>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
 			echo '</div>';
 			echo '</td></tr>';
 		}
 		echo '</tbody></table>';
-		echo '<p class="description">Fill these in after ordering, then click <strong>Update</strong>.</p>';
+		echo '<p class="description">Filled in automatically when automatic ordering is on. Ordering by hand? Enter the AliExpress order number and click <strong>Update</strong> — tracking is then fetched for you.</p>';
+		if ( $profit ) {
+			self::render_order_profit( $profit, $order );
+		}
 		echo '</div>';
 
 		echo '<div class="gsup-order-address"><h4>Ship to</h4>';
@@ -204,6 +296,89 @@ class GSUP_Order_Panel {
 			echo '<p>' . gsup_copy_button( implode( "\n", $all_lines ), 'Copy whole address' ) . '</p>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
 		echo '</div></div>';
+	}
+
+	/** Automatic ordering status and buttons. */
+	private static function render_auto( WC_Order $order ) {
+		if ( ! GSUP_AliExpress::is_connected() ) {
+			return;
+		}
+		$state    = (string) $order->get_meta( GSUP_Orders::M_AUTO_STATE );
+		$unplaced = 0;
+		$untrack  = 0;
+		foreach ( $order->get_items() as $item ) {
+			$product = $item->get_product();
+			$ae      = (string) $item->get_meta( GSUP_ITEM_AE_ORDER );
+			if ( '' === $ae && $product && '' !== gsup_get_supplier_link( $product )['product_id'] ) {
+				++$unplaced;
+			} elseif ( '' !== $ae && '' === (string) $item->get_meta( GSUP_ITEM_TRACKING ) ) {
+				++$untrack;
+			}
+		}
+		$labels = array(
+			'queued'  => 'Queued to be placed on AliExpress automatically (within a minute or two).',
+			'placed'  => 'Placed on AliExpress automatically.',
+			'partial' => 'Partly placed on AliExpress — some items need ordering by hand (reasons below).',
+			'failed'  => 'Couldn’t be placed on AliExpress automatically — reasons below.',
+		);
+		$line = isset( $labels[ $state ] ) ? $labels[ $state ] : '';
+		if ( '' === $line && $unplaced && 'processing' === $order->get_status() ) {
+			$line = GSUP_Orders::enabled() ? 'Not placed on AliExpress yet.' : 'Automatic ordering is off (Givsen Supplier → Settings).';
+		}
+		if ( '' === $line && ! $untrack ) {
+			return;
+		}
+		echo '<p class="gsup-auto">' . esc_html( $line ) . ' ';
+		if ( $unplaced && 'processing' === $order->get_status() ) {
+			echo '<a class="button" href="' . esc_url( self::action_url( 'place_now', $order ) ) . '" data-gsup-confirm="Place ' . (int) $unplaced . ' item(s) on AliExpress now? Items that already have an AliExpress order number are skipped.">Place on AliExpress now</a> ';
+		}
+		if ( $untrack ) {
+			echo '<a class="button" href="' . esc_url( self::action_url( 'track_now', $order ) ) . '">Check tracking now</a>';
+		}
+		echo '</p>';
+	}
+
+	private static function ae_status_label( $status ) {
+		$map = array(
+			'PLACE_ORDER_SUCCESS'       => 'waiting for payment',
+			'WAIT_SELLER_SEND_GOODS'    => 'paid, waiting for the seller to ship',
+			'SELLER_PART_SEND_GOODS'    => 'partly shipped',
+			'WAIT_BUYER_ACCEPT_GOODS'   => 'shipped',
+			'FUND_PROCESSING'           => 'payment processing',
+			'WAIT_SELLER_EXAMINE_MONEY' => 'payment being checked',
+			'RISK_CONTROL'              => 'payment being checked',
+			'IN_ISSUE'                  => 'dispute open',
+			'IN_FROZEN'                 => 'on hold',
+			'IN_CANCEL'                 => 'cancelling',
+			'FINISH'                    => 'finished',
+		);
+		return isset( $map[ $status ] ) ? $map[ $status ] : strtolower( str_replace( '_', ' ', $status ) );
+	}
+
+	private static function render_line_profit( array $l, WC_Order $order ) {
+		if ( null === $l['cost'] ) {
+			echo '<div class="gsup-meta">Profit: AliExpress cost not known for this item.</div>';
+			return;
+		}
+		$cur = array( 'currency' => $order->get_currency() );
+		echo '<div class="gsup-meta gsup-line-profit">Customer paid ' . wp_kses_post( wc_price( $l['revenue'], $cur ) ) . ' · AliExpress ' . wp_kses_post( wc_price( $l['cost'], $cur ) );
+		if ( 'aliexpress' !== $l['source'] ) {
+			echo ' <span title="From the cost saved on the product, including delivery. Replaced by the AliExpress order’s cost once known.">(estimate)</span>';
+		}
+		echo ' · Profit <strong class="' . ( $l['profit'] < 0 ? 'gsup-sub--bad' : '' ) . '">' . wp_kses_post( wc_price( $l['profit'], $cur ) ) . '</strong></div>';
+	}
+
+	private static function render_order_profit( array $p, WC_Order $order ) {
+		$cur = array( 'currency' => $order->get_currency() );
+		$low = null !== $p['margin'] && $p['margin'] * 100 < GSUP_Profit::min_margin();
+		echo '<h4 class="gsup-profit-title">Profit on this order</h4><table class="gsup-profit"><tbody>';
+		echo '<tr><th>Customer paid (before tax, after refunds)</th><td>' . wp_kses_post( wc_price( $p['revenue'], $cur ) ) . '</td></tr>';
+		echo '<tr><th>AliExpress cost with delivery</th><td>' . wp_kses_post( wc_price( $p['cost'], $cur ) ) . ( $p['unknown'] ? ' <span class="gsup-warn--soft">+ ' . (int) $p['unknown'] . ' item(s) not known</span>' : '' ) . '</td></tr>';
+		if ( $p['fees'] > 0 ) {
+			echo '<tr><th>Payment fees</th><td>' . wp_kses_post( wc_price( $p['fees'], $cur ) ) . '</td></tr>';
+		}
+		echo '<tr class="gsup-profit-total' . ( $p['profit'] < 0 || $low ? ' gsup-profit--low' : '' ) . '"><th>Profit</th><td>' . wp_kses_post( wc_price( $p['profit'], $cur ) ) . ' <span class="gsup-meta">(' . esc_html( GSUP_Profit::pct( $p['margin'] ) ) . ' margin)</span></td></tr>';
+		echo '</tbody></table>';
 	}
 
 	public static function save( $order_id ) {
@@ -246,11 +421,19 @@ class GSUP_Order_Panel {
 				$changed = true;
 			}
 			if ( $changed ) {
+				if ( '' !== (string) $item->get_meta( GSUP_ITEM_AE_ORDER ) && ! preg_match( '/cancel/i', (string) $item->get_meta( GSUP_ITEM_PROBLEM ) ) ) {
+					$item->delete_meta_data( GSUP_ITEM_PROBLEM );
+					$item->delete_meta_data( GSUP_Orders::I_PLACING );
+				}
 				$item->save();
+				$any = true;
 			}
 		}
 		if ( $notes ) {
 			$order->add_order_note( 'Givsen Supplier: ' . implode( ' ', $notes ), 0, true );
+		}
+		if ( ! empty( $any ) ) {
+			GSUP_Orders::after_tracking_change( wc_get_order( $order_id ) );
 		}
 	}
 }

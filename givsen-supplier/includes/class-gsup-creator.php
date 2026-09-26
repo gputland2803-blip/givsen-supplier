@@ -23,16 +23,23 @@ class GSUP_Creator {
 			'multiplier' => $mult > 0 ? $mult : 2,
 			'add'        => (float) get_option( 'gsup_price_add', 0 ),
 			'round'      => 'no' !== get_option( 'gsup_price_round', 'yes' ),
+			'shipping'   => 'no' !== get_option( 'gsup_price_shipping', 'yes' ),
 		);
 	}
 
-	/** Selling price from AliExpress cost using the pricing rule. */
-	public static function price_for( $cost ) {
+	/**
+	 * Selling price from AliExpress cost using the pricing rule.
+	 * The delivery fee is added to the cost first when "include shipping" is on.
+	 */
+	public static function price_for( $cost, $ship = 0 ) {
 		$cost = (float) $cost;
 		if ( $cost <= 0 ) {
 			return '';
 		}
-		$r     = self::rule();
+		$r = self::rule();
+		if ( $r['shipping'] ) {
+			$cost += max( 0, (float) $ship );
+		}
 		$price = $cost * $r['multiplier'] + $r['add'];
 		if ( $r['round'] ) {
 			$price = ceil( $price ) - 0.05; // e.g. 23.40 → 23.95
@@ -41,6 +48,21 @@ class GSUP_Creator {
 			}
 		}
 		return wc_format_decimal( max( $price, 0.01 ), wc_get_price_decimals() );
+	}
+
+	/**
+	 * AliExpress's delivery quote for one of a listing's options, using the shipping method preference.
+	 * One quote per product and warehouse: AliExpress charges the same delivery for every option of a listing
+	 * in nearly all cases, and it keeps "Add to store" to a single extra call.
+	 *
+	 * @return array|WP_Error {code, name, fee, currency, min_days, max_days, tracked}
+	 */
+	public static function quote( $ae_product_id, $sku_id, $ship ) {
+		$options = GSUP_AliExpress::freight( $ae_product_id, $sku_id, gsup_quote_country( $ship ) );
+		if ( is_wp_error( $options ) ) {
+			return $options;
+		}
+		return GSUP_AliExpress::choose_freight( $options );
 	}
 
 	/* ---------------------------------------------------------- warehouses */
@@ -129,6 +151,9 @@ class GSUP_Creator {
 		$chosen      = $unique;
 		$is_variable = count( $chosen ) > 1 && $names;
 
+		$freight = self::quote( $product['product_id'], $chosen[0]['sku_id'], $ship );
+		$freight = is_wp_error( $freight ) ? null : $freight;
+
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- image downloads can take a while.
 		}
@@ -164,7 +189,7 @@ class GSUP_Creator {
 			$wc->set_attributes( $attributes );
 		} else {
 			$sku = $chosen[0];
-			self::apply_price_and_stock( $wc, $sku );
+			self::apply_price_and_stock( $wc, $sku, $freight );
 		}
 
 		$wc->update_meta_data( GSUP_META_PRODUCT, (string) $product['product_id'] );
@@ -172,7 +197,8 @@ class GSUP_Creator {
 			$sku = $chosen[0];
 			$wc->update_meta_data( GSUP_META_SKU, (string) $sku['sku_id'] );
 			$wc->update_meta_data( GSUP_META_OPTION, mb_substr( $sku['option'], 0, 255 ) );
-			$wc->update_meta_data( '_gsup_cost', (string) $sku['price'] );
+			$wc->update_meta_data( GSUP_META_COST, (string) $sku['price'] );
+			self::set_freight_meta( $wc, $freight );
 			if ( '' !== $ship ) {
 				$wc->update_meta_data( GSUP_META_SHIP, $ship );
 			}
@@ -196,6 +222,7 @@ class GSUP_Creator {
 			$wc->save();
 		}
 
+		GSUP_Profit::$paused = true;
 		if ( $is_variable ) {
 			$image_cache = array();
 			foreach ( $chosen as $sku ) {
@@ -213,7 +240,7 @@ class GSUP_Creator {
 				}
 				$v->set_parent_id( $product_id );
 				$v->set_attributes( $attrs );
-				self::apply_price_and_stock( $v, $sku );
+				self::apply_price_and_stock( $v, $sku, $freight );
 				if ( '' !== $img ) {
 					if ( ! isset( $image_cache[ $img ] ) && count( $image_cache ) < self::MAX_OPTION_IMAGES ) {
 						$image_cache[ $img ] = self::sideload( $img, $product_id, $title . ' — ' . self::option_text( $sku ) );
@@ -224,7 +251,8 @@ class GSUP_Creator {
 				}
 				$v->update_meta_data( GSUP_META_SKU, (string) $sku['sku_id'] );
 				$v->update_meta_data( GSUP_META_OPTION, mb_substr( $sku['option'], 0, 255 ) );
-				$v->update_meta_data( '_gsup_cost', (string) $sku['price'] );
+				$v->update_meta_data( GSUP_META_COST, (string) $sku['price'] );
+				self::set_freight_meta( $v, $freight );
 				if ( '' !== $ship ) {
 					$v->update_meta_data( GSUP_META_SHIP, $ship );
 				}
@@ -232,9 +260,16 @@ class GSUP_Creator {
 			}
 			WC_Product_Variable::sync( $product_id );
 		}
+		GSUP_Profit::$paused = false;
 		wc_delete_product_transients( $product_id );
 
 		self::mark_import_rows( $product['product_id'], $product_id );
+		if ( class_exists( 'GSUP_CBR' ) ) {
+			GSUP_CBR::apply( $product_id );
+		}
+		if ( class_exists( 'GSUP_Profit' ) ) {
+			GSUP_Profit::refresh_flag( $product_id );
+		}
 		return $product_id;
 	}
 
@@ -244,8 +279,16 @@ class GSUP_Creator {
 		return trim( wp_kses_post( $html ) );
 	}
 
-	private static function apply_price_and_stock( $wc, array $sku ) {
-		$price = self::price_for( $sku['price'] );
+	/** Delivery fee and method on a product/variation (removed when AliExpress gave no quote). */
+	public static function set_freight_meta( $wc, $freight ) {
+		if ( $freight ) {
+			$wc->update_meta_data( GSUP_META_SHIP_COST, wc_format_decimal( $freight['fee'], 2 ) );
+			$wc->update_meta_data( GSUP_META_SHIP_METHOD, (string) $freight['code'] );
+		}
+	}
+
+	private static function apply_price_and_stock( $wc, array $sku, $freight = null ) {
+		$price = self::price_for( $sku['price'], $freight ? $freight['fee'] : 0 );
 		if ( '' !== $price ) {
 			$wc->set_regular_price( $price );
 		}
