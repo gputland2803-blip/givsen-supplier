@@ -51,6 +51,12 @@ class GSUP_Product_Fields {
 			if ( $removed ) {
 				echo '<br><span class="gsup-sub--bad">AliExpress no longer sells this listing — pick a replacement and your options are matched automatically.</span>';
 			}
+			$backup = GSUP_Remap::backup( $id );
+			if ( $backup ) {
+				echo '<br><span class="gsup-meta">Backup supplier: <a href="' . esc_url( gsup_ae_url( $backup['product_id'] ) ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( $backup['product_id'] ) . ' ↗</a> (' . count( $backup['map'] ) . ' option(s) matched, saved ' . esc_html( wp_date( 'j M Y', (int) $backup['saved_at'] ) ) . ') · <a href="' . esc_url( GSUP_Remap::backup_remove_url( $id ) ) . '">Remove</a></span>';
+			} else {
+				echo '<br><span class="gsup-meta">No backup supplier. Use <em>Change supplier…</em> → <em>Save as backup</em> to add one.</span>';
+			}
 			echo '</p>';
 		}
 		echo '</div>';

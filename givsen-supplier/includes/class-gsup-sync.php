@@ -37,6 +37,16 @@ class GSUP_Sync {
 		return 'no' !== get_option( 'gsup_sync_enabled', 'yes' );
 	}
 
+	/** Switch to a product's backup supplier automatically when needed. */
+	public static function backup_auto() {
+		return 'no' !== get_option( 'gsup_backup_auto', 'yes' );
+	}
+
+	/** Cost rise (%) that makes a cheaper backup supplier take over. */
+	public static function backup_rise() {
+		return max( 1, (float) get_option( 'gsup_backup_rise', 15 ) );
+	}
+
 	public static function update_prices() {
 		return 'yes' === get_option( 'gsup_sync_prices', 'no' );
 	}
@@ -126,6 +136,8 @@ class GSUP_Sync {
 			'price_changes' => 0,
 			'ship_changes'  => 0,
 			'low_margin'    => array(), // product IDs whose cost went up and margin is now below the minimum
+			'switched'      => array(), // product IDs moved to their backup supplier
+			'backup_failed' => array(), // product IDs whose backup supplier couldn't be used
 			'removed'       => array(), // product IDs drafted/flagged
 			'options_gone'  => array(), // variation/simple IDs newly out because the option is gone
 			'back'          => array(), // product IDs back on AliExpress after being drafted by sync
@@ -275,6 +287,9 @@ class GSUP_Sync {
 			$missing = (int) get_post_meta( $product_id, self::M_MISSING, true ) + 1;
 			update_post_meta( $product_id, self::M_MISSING, $missing );
 			if ( 'gone' === $verdict || $missing >= 2 ) {
+				if ( self::try_backup( $product, 'listing removed', $report ) ) {
+					return 'ok';
+				}
 				self::mark_removed( $product, $report );
 				return 'removed';
 			}
@@ -284,6 +299,9 @@ class GSUP_Sync {
 		}
 
 		if ( ! $ae['on_sale'] ) {
+			if ( self::try_backup( $product, 'listing not for sale', $report ) ) {
+				return 'ok';
+			}
 			self::mark_removed( $product, $report );
 			return 'removed';
 		}
@@ -298,7 +316,9 @@ class GSUP_Sync {
 
 		$targets = $product->is_type( 'variable' ) ? $product->get_children() : array( $product_id );
 		$freight = self::freight_for( $ae, $targets, $ship_to, $cache, $product_id );
-		$rose    = false;
+		$rise    = 0.0;     // Biggest cost rise among the options, as a fraction.
+		$gone    = 0;
+		$costs   = array(); // Item ID => cost with delivery now.
 		GSUP_Profit::$paused = true;
 		foreach ( $targets as $target_id ) {
 			$item   = wc_get_product( $target_id );
@@ -317,20 +337,85 @@ class GSUP_Sync {
 			}
 			if ( ! $sku ) {
 				self::mark_option_gone( $item, $report );
+				++$gone;
 				continue;
 			}
-			$rose = self::apply( $item, $sku, $report, $freight ) || $rose;
+			$rise                 = max( $rise, self::apply( $item, $sku, $report, $freight ) );
+			$costs[ $target_id ] = (float) $sku['price'] + ( $freight ? (float) $freight['fee'] : (float) get_post_meta( $target_id, GSUP_META_SHIP_COST, true ) );
 		}
+		$rose = $rise > 0;
 		GSUP_Profit::$paused = false;
 		if ( $product->is_type( 'variable' ) ) {
 			WC_Product_Variable::sync( $product_id );
 		}
 		update_post_meta( $product_id, self::M_SYNCED, time() );
 		wc_delete_product_transients( $product_id );
+		if ( $gone ) {
+			self::try_backup( $product, 'option no longer on AliExpress', $report );
+		} elseif ( $rise * 100 > self::backup_rise() && self::try_backup( $product, 'cost rose ' . round( $rise * 100 ) . '%', $report, $costs ) ) {
+			return 'ok';
+		}
 		if ( GSUP_Profit::refresh_flag( $product_id ) && $rose ) {
 			$report['low_margin'][] = $product_id;
 		}
 		return 'ok';
+	}
+
+	/**
+	 * Move a product to its backup supplier, if it has one that works: listing on sale, every matched option
+	 * still there and in stock — and, for a price rise, cheaper than the current supplier.
+	 *
+	 * @param array|null $costs For a price rise: item ID => current cost with delivery.
+	 * @return bool Switched.
+	 */
+	private static function try_backup( WC_Product $product, $why, array &$report, $costs = null ) {
+		if ( ! self::backup_auto() || ! class_exists( 'GSUP_Remap' ) ) {
+			return false;
+		}
+		$id = $product->get_id();
+		$b  = GSUP_Remap::backup( $id );
+		if ( ! $b ) {
+			return false;
+		}
+		$new = GSUP_AliExpress::get_product( $b['product_id'], gsup_quote_country( $b['ship'] ) );
+		$ok  = ! is_wp_error( $new ) && $new['on_sale'];
+		foreach ( $ok ? $b['map'] : array() as $sku_id ) {
+			$sku = GSUP_AliExpress::find_sku( $new, $sku_id );
+			if ( ! $sku || $sku['ship_from'] !== (string) $b['ship'] || 0 === $sku['stock'] ) {
+				$ok = false;
+				break;
+			}
+		}
+		if ( ! $ok ) {
+			if ( null === $costs ) {
+				$report['backup_failed'][] = $id; // Needed it and couldn't use it: tell you.
+			}
+			return false;
+		}
+		if ( null !== $costs ) {
+			// Only worth it if the backup is cheaper for the same options.
+			$first   = reset( $b['map'] );
+			$quote   = GSUP_Creator::quote( $new['product_id'], $first, $b['ship'] );
+			$fee     = is_wp_error( $quote ) ? 0.0 : (float) $quote['fee'];
+			$now     = 0.0;
+			$instead = 0.0;
+			foreach ( $b['map'] as $item_id => $sku_id ) {
+				if ( isset( $costs[ $item_id ] ) ) {
+					$now     += $costs[ $item_id ];
+					$instead += (float) GSUP_AliExpress::find_sku( $new, $sku_id )['price'] + $fee;
+				}
+			}
+			if ( ! $now || $instead >= $now ) {
+				return false;
+			}
+		}
+		$map = array();
+		foreach ( $product->is_type( 'variable' ) ? $product->get_children() : array( $id ) as $item_id ) {
+			$map[ $item_id ] = isset( $b['map'][ $item_id ] ) ? (string) $b['map'][ $item_id ] : '';
+		}
+		GSUP_Remap::switch_to( $id, $new, (string) $b['ship'], $map, false, true, 'automatic: ' . $why, null !== $costs );
+		$report['switched'][] = $id;
+		return true;
 	}
 
 	/**
@@ -409,7 +494,7 @@ class GSUP_Sync {
 	}
 
 	/**
-	 * @return bool Whether this option's cost (with delivery) went up.
+	 * @return float How much this option's cost (with delivery) went up, as a fraction (0 = no rise).
 	 */
 	private static function apply( WC_Product $item, array $sku, array &$report, $freight = null ) {
 		$id = $item->get_id();
@@ -473,7 +558,7 @@ class GSUP_Sync {
 		if ( $changed ) {
 			$item->save();
 		}
-		return $rose;
+		return $rose ? $new_total / $old_total - 1 : 0.0;
 	}
 
 	private static function finish( array $run ) {
@@ -491,7 +576,7 @@ class GSUP_Sync {
 
 	private static function email( array $last ) {
 		$r = $last['report'];
-		if ( ! $r['removed'] && ! $r['options_gone'] && ! $r['back'] && ! $r['errors'] && empty( $r['low_margin'] ) ) {
+		if ( ! $r['removed'] && ! $r['options_gone'] && ! $r['back'] && ! $r['errors'] && empty( $r['low_margin'] ) && empty( $r['switched'] ) && empty( $r['backup_failed'] ) ) {
 			return;
 		}
 		$lines   = array();
@@ -515,6 +600,20 @@ class GSUP_Sync {
 			$lines[] = 'Back on sale on AliExpress (still in draft — publish them if you want them back):';
 			foreach ( $r['back'] as $id ) {
 				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . admin_url( 'post.php?post=' . (int) $id . '&action=edit' );
+			}
+			$lines[] = '';
+		}
+		if ( ! empty( $r['switched'] ) ) {
+			$lines[] = 'Switched to their backup supplier automatically (your prices were left as they are):';
+			foreach ( $r['switched'] as $id ) {
+				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . admin_url( 'post.php?post=' . (int) $id . '&action=edit' );
+			}
+			$lines[] = '';
+		}
+		if ( ! empty( $r['backup_failed'] ) ) {
+			$lines[] = 'Needed their backup supplier but it couldn’t be used (listing gone or options missing) — choose a new one:';
+			foreach ( $r['backup_failed'] as $id ) {
+				$lines[] = '  • ' . gsup_product_label( $id ) . ' — ' . gsup_remap_url( $id );
 			}
 			$lines[] = '';
 		}

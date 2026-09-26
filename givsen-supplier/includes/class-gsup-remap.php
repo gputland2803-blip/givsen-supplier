@@ -14,10 +14,34 @@ defined( 'ABSPATH' ) || exit;
 
 class GSUP_Remap {
 
-	const M_HISTORY = '_gsup_supplier_history'; // [{from, to, at}] — earlier AliExpress products.
+	const M_HISTORY = '_gsup_supplier_history'; // [{from, to, at, why}] — earlier AliExpress products.
+	const M_BACKUP  = '_gsup_backup';           // {product_id, ship, map: {item ID: SKU ID}, saved_at} — used when the main listing fails.
 
 	public static function init() {
 		add_action( 'admin_post_gsup_remap', array( __CLASS__, 'handle_save' ) );
+		add_action( 'admin_post_gsup_backup_remove', array( __CLASS__, 'handle_backup_remove' ) );
+	}
+
+	/** The product's backup supplier, if one is saved. */
+	public static function backup( $product_id ) {
+		$b = get_post_meta( $product_id, self::M_BACKUP, true );
+		return is_array( $b ) && ! empty( $b['product_id'] ) && ! empty( $b['map'] ) ? $b : null;
+	}
+
+	public static function handle_backup_remove() {
+		$product_id = isset( $_GET['product'] ) ? absint( $_GET['product'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! current_user_can( 'edit_product', $product_id ) ) {
+			wp_die( 'You do not have permission to do that.', 403 );
+		}
+		check_admin_referer( 'gsup_backup_remove_' . $product_id );
+		delete_post_meta( $product_id, self::M_BACKUP );
+		gsup_flash( 'Backup supplier removed.', 'info' );
+		wp_safe_redirect( admin_url( 'post.php?post=' . $product_id . '&action=edit' ) );
+		exit;
+	}
+
+	public static function backup_remove_url( $product_id ) {
+		return wp_nonce_url( admin_url( 'admin-post.php?action=gsup_backup_remove&product=' . (int) $product_id ), 'gsup_backup_remove_' . (int) $product_id );
 	}
 
 	public static function url( $product_id, $args = array() ) {
@@ -235,7 +259,10 @@ class GSUP_Remap {
 		echo '<p><label><input type="checkbox" name="reprice" value="1"> Also set prices from my pricing rule with the new costs</label><br>';
 		$drafted = get_post_meta( $product_id, GSUP_Sync::M_DRAFTED, true ) && 'draft' === $product->get_status();
 		echo '<label><input type="checkbox" name="republish" value="1"' . ( $drafted ? ' checked' : ' disabled' ) . '> Publish it again' . ( $drafted ? ' (the sync switched it to draft when the old listing disappeared)' : ' (only for products the sync switched to draft)' ) . '</label></p>';
-		echo '<p><button type="submit" class="button button-primary">Change supplier</button> <a class="button" href="' . esc_url( admin_url( 'post.php?post=' . $product_id . '&action=edit' ) ) . '">Cancel</a></p>';
+		echo '<p><button type="submit" name="mode" value="switch" class="button button-primary">Change supplier now</button> ';
+		echo '<button type="submit" name="mode" value="backup" class="button">Save as backup supplier</button> ';
+		echo '<a class="button-link" href="' . esc_url( admin_url( 'post.php?post=' . $product_id . '&action=edit' ) ) . '">Cancel</a></p>';
+		echo '<p class="gsup-meta"><strong>Backup supplier:</strong> keeps your current supplier and remembers these matches. The daily sync switches over automatically if the current listing is removed, an option disappears, or its cost rises by more than ' . (int) GSUP_Sync::backup_rise() . '% and the backup is cheaper' . ( GSUP_Sync::backup_auto() ? '' : ' — <em>automatic switching is off in Settings → Daily sync</em>' ) . '.</p>';
 		echo '</form>';
 	}
 
@@ -254,6 +281,7 @@ class GSUP_Remap {
 		$map       = isset( $_POST['map'] ) && is_array( $_POST['map'] ) ? array_map( 'gsup_parse_sku_id', array_map( 'sanitize_text_field', wp_unslash( $_POST['map'] ) ) ) : array();
 		$reprice   = ! empty( $_POST['reprice'] );
 		$republish = ! empty( $_POST['republish'] );
+		$mode      = isset( $_POST['mode'] ) && 'backup' === $_POST['mode'] ? 'backup' : 'switch';
 		// phpcs:enable
 		$product = wc_get_product( $product_id );
 		$back    = self::url( $product_id, array( 'ae' => $ae, 'ship' => '' === $ship ? 'none' : $ship ) );
@@ -268,6 +296,66 @@ class GSUP_Remap {
 			wp_safe_redirect( $back );
 			exit;
 		}
+		if ( 'backup' === $mode ) {
+			$clean = array();
+			foreach ( $map as $item_id => $sku_id ) {
+				if ( '' !== $sku_id && GSUP_AliExpress::find_sku( $new, $sku_id ) ) {
+					$clean[ (int) $item_id ] = (string) $sku_id;
+				}
+			}
+			if ( ! $clean ) {
+				gsup_flash( 'Match at least one option to save a backup supplier.', 'error' );
+				wp_safe_redirect( $back );
+				exit;
+			}
+			update_post_meta(
+				$product_id,
+				self::M_BACKUP,
+				array(
+					'product_id' => (string) $new['product_id'],
+					'ship'       => $ship,
+					'map'        => $clean,
+					'saved_at'   => time(),
+				)
+			);
+			gsup_flash( 'Backup supplier saved (AliExpress product ' . esc_html( $new['product_id'] ) . ', ' . count( $clean ) . ' option(s) matched). Your current supplier stays in use.' );
+			wp_safe_redirect( admin_url( 'post.php?post=' . $product_id . '&action=edit' ) );
+			exit;
+		}
+		list( $linked, $unmatched ) = self::switch_to( $product_id, $new, $ship, $map, $reprice, $republish, 'changed by hand' );
+
+		gsup_flash(
+			sprintf(
+				'Supplier changed to AliExpress product %1$s: %2$d option(s) linked%3$s.',
+				esc_html( $new['product_id'] ),
+				$linked,
+				$unmatched ? ', ' . $unmatched . ' set out of stock (no match — link them in the Variations tab or delete them)' : ''
+			),
+			$unmatched ? 'warning' : 'success'
+		);
+		wp_safe_redirect( admin_url( 'post.php?post=' . $product_id . '&action=edit' ) );
+		exit;
+	}
+
+	/**
+	 * Point a product at another AliExpress listing. Used by the screen and by the sync's automatic backup switch.
+	 *
+	 * @param array  $new       Listing from GSUP_AliExpress::get_product().
+	 * @param array  $map       Store item ID => new SKU ID ('' = no match).
+	 * @param string $why       For the supplier history.
+	 * @param bool   $old_as_backup Keep the current listing as the backup (when it still works, e.g. a price rise).
+	 * @return array{0:int,1:int} options linked, options without a match
+	 */
+	public static function switch_to( $product_id, array $new, $ship, array $map, $reprice, $republish, $why = '', $old_as_backup = false ) {
+		$product = wc_get_product( $product_id );
+		$old_map = array();
+		foreach ( self::targets( $product ) as $item ) {
+			$sku_id = (string) get_post_meta( $item->get_id(), GSUP_META_SKU, true );
+			if ( '' !== $sku_id ) {
+				$old_map[ $item->get_id() ] = $sku_id;
+			}
+		}
+		$old_ship_list = GSUP_CBR::warehouses( $product );
 		$freight = null;
 		foreach ( $map as $sku_id ) {
 			if ( '' !== $sku_id ) {
@@ -278,7 +366,7 @@ class GSUP_Remap {
 		}
 
 		$old_pid   = (string) get_post_meta( $product_id, GSUP_META_PRODUCT, true );
-		$old_ships = GSUP_CBR::warehouses( $product );
+		$old_ships = $old_ship_list;
 		$linked    = 0;
 		$unmatched = 0;
 		GSUP_Profit::$paused = true;
@@ -325,6 +413,7 @@ class GSUP_Remap {
 			'from' => $old_pid,
 			'to'   => (string) $new['product_id'],
 			'at'   => time(),
+			'why'  => $why,
 		);
 		update_post_meta( $product_id, self::M_HISTORY, array_slice( array_filter( $history ), -10 ) );
 		update_post_meta( $product_id, GSUP_META_PRODUCT, (string) $new['product_id'] );
@@ -344,16 +433,23 @@ class GSUP_Remap {
 		GSUP_Profit::refresh_flag( $product_id );
 		GSUP_CBR::apply( $product_id, array( $ship ) !== $old_ships ); // Warehouse changed → its countries.
 
-		gsup_flash(
-			sprintf(
-				'Supplier changed to AliExpress product %1$s: %2$d option(s) linked%3$s.',
-				esc_html( $new['product_id'] ),
-				$linked,
-				$unmatched ? ', ' . $unmatched . ' set out of stock (no match — link them in the Variations tab or delete them)' : ''
-			),
-			$unmatched ? 'warning' : 'success'
-		);
-		wp_safe_redirect( admin_url( 'post.php?post=' . $product_id . '&action=edit' ) );
-		exit;
+		if ( $old_as_backup && '' !== $old_pid && $old_map ) {
+			update_post_meta(
+				$product_id,
+				self::M_BACKUP,
+				array(
+					'product_id' => $old_pid,
+					'ship'       => 1 === count( $old_ship_list ) ? $old_ship_list[0] : $ship,
+					'map'        => $old_map,
+					'saved_at'   => time(),
+				)
+			);
+		} else {
+			$b = self::backup( $product_id );
+			if ( $b && (string) $b['product_id'] === (string) $new['product_id'] ) {
+				delete_post_meta( $product_id, self::M_BACKUP ); // The backup is now the main supplier.
+			}
+		}
+		return array( $linked, $unmatched );
 	}
 }

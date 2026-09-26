@@ -701,6 +701,8 @@ class GSUP_Admin_Page {
 					'back'         => 'Back on sale on AliExpress (still in draft)',
 					'missing'      => 'Not found today (will be drafted if still missing tomorrow)',
 					'low_margin'   => 'Cost went up — margin now below ' . GSUP_Profit::min_margin() . '%',
+					'switched'     => 'Switched to their backup supplier',
+					'backup_failed' => 'Backup supplier couldn’t be used',
 				) as $key => $label
 			) {
 				if ( empty( $r[ $key ] ) ) {
@@ -730,6 +732,7 @@ class GSUP_Admin_Page {
 		echo '<table class="form-table gsup-settings"><tbody>';
 		echo '<tr><th scope="row">Daily sync</th><td><label><input type="checkbox" name="enabled" value="yes"' . checked( GSUP_Sync::enabled(), true, false ) . '> Run every day</label></td></tr>';
 		echo '<tr><th scope="row">Prices</th><td><label><input type="checkbox" name="prices" value="yes"' . checked( GSUP_Sync::update_prices(), true, false ) . '> Also update my prices from the pricing rule when AliExpress costs change</label><p class="description">Off: only your cost is recorded and your prices stay as you set them. On: regular prices follow cost × your pricing rule (sale prices are never touched).</p></td></tr>';
+		echo '<tr><th scope="row">Backup suppliers</th><td><label><input type="checkbox" name="backup_auto" value="yes"' . checked( GSUP_Sync::backup_auto(), true, false ) . '> Switch to a product’s backup supplier automatically</label> when its listing is removed, an option disappears, or its cost rises more than <input type="number" name="backup_rise" min="1" max="200" step="1" class="small-text" value="' . esc_attr( GSUP_Sync::backup_rise() ) . '">% and the backup is cheaper.<p class="description">Save a backup from a product’s <strong>Change supplier…</strong> button. Your prices are never changed by a switch; you’re emailed each time.</p></td></tr>';
 		echo '<tr><th scope="row"><label for="gsup_sync_email">Email summaries to</label></th><td><input type="email" id="gsup_sync_email" name="email" class="regular-text" value="' . esc_attr( $email ) . '"><p class="description">Only sent when something needs your attention.</p></td></tr>';
 		echo '</tbody></table><p><button type="submit" class="button button-primary">Save sync settings</button></p></form>';
 	}
@@ -1202,6 +1205,8 @@ class GSUP_Admin_Page {
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
 		update_option( 'gsup_sync_enabled', isset( $_POST['enabled'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_sync_prices', isset( $_POST['prices'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_backup_auto', isset( $_POST['backup_auto'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_backup_rise', max( 1, min( 200, isset( $_POST['backup_rise'] ) ? (float) $_POST['backup_rise'] : 15 ) ), false );
 		$email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
 		// phpcs:enable
 		update_option( 'gsup_sync_email', is_email( $email ) ? $email : get_option( 'admin_email' ), false );

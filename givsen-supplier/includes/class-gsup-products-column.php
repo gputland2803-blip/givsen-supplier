@@ -98,6 +98,9 @@ class GSUP_Products_Column {
 			echo '<span class="gsup-sub gsup-sub--bad">Option no longer on AliExpress</span>';
 		}
 		self::render_margin( $product );
+		if ( GSUP_Remap::backup( $post_id ) ) {
+			echo '<span class="gsup-sub gsup-sub--muted">Backup supplier set</span>';
+		}
 		if ( GSUP_CBR::enabled() ) {
 			$cbr = GSUP_CBR::label( $post_id );
 			echo '<span class="gsup-sub' . ( '' === $cbr ? ' gsup-sub--muted' : '' ) . '">' . esc_html( '' !== $cbr ? $cbr : 'Shown to: all countries' ) . '</span>';
