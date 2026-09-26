@@ -1,5 +1,13 @@
 # Givsen Supplier — Changelog
 
+## 0.8.1 — 2026-09-26
+Works with the Givsen gift plugin (tested against Givsen for WooCommerce 1.4.2; only active when it is).
+- **Business gifting**: the paid parent order is never placed on AliExpress (it ships nothing; the panel says so). Each recipient's $0 order is placed as normal — the "would lose money" check and its profit now use the parent's price, shipping and fees per recipient instead of $0.
+- **Privacy**: tracking numbers and links aren't shown to the buyer of a personal gift (they'd reveal where it went) and aren't sent to Advanced Shipment Tracking for those orders — unless the buyer typed the address themselves.
+- **Delivered emails, gift-worded**: personal gifts → the buyer, "Your gift to Jo has been delivered" (who, never where; Givsen doesn't collect the recipient's email). Business gifting → the recipient, at the email they gave when claiming, "Your gift from Acme has been delivered"; no email if they gave none.
+- **Phone for the courier** (Settings → Ordering & tracking): AliExpress needs one; used when an order has none, e.g. a recipient who left theirs blank. Business gifting tries the business's phone first.
+- **Profit report** counts payments with no products (Givsen's extra-postage orders) as revenue.
+
 ## 0.8.0 — 2026-09-26
 Eight additions.
 1. **Backup supplier per product**: on Change supplier, "Save as backup supplier" remembers the new listing and its option matches without switching. The daily sync switches over automatically when the listing is removed or not for sale, an option disappears, or its cost rises more than a set % (default 15) and the backup is cheaper — the old listing then becomes the backup. Prices are never changed by a switch; you're emailed. Settings → Daily sync; backup shown (with Remove) on the Supplier tab and products list.

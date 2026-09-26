@@ -87,7 +87,7 @@ class GSUP_Orders {
 			return;
 		}
 		$order = wc_get_order( $order_id );
-		if ( ! $order || ! self::has_unplaced_lines( $order ) ) {
+		if ( ! $order || GSUP_Givsen::is_corporate_parent( $order ) || ! self::has_unplaced_lines( $order ) ) {
 			return;
 		}
 		if ( ! as_next_scheduled_action( 'gsup_place_order', array( (int) $order_id ), self::GROUP ) ) {
@@ -122,6 +122,9 @@ class GSUP_Orders {
 		$order = wc_get_order( $order_id );
 		if ( ! $order ) {
 			return new WP_Error( 'gsup_no_order', 'Order not found.' );
+		}
+		if ( GSUP_Givsen::is_corporate_parent( $order ) ) {
+			return new WP_Error( 'gsup_givsen_parent', 'This is a Givsen Business gifting order: nothing ships from it. Each recipient’s claim creates its own order, and that one is placed on AliExpress.' );
 		}
 		if ( 'processing' !== $order->get_status() ) {
 			$order->delete_meta_data( self::M_AUTO_STATE );
@@ -263,6 +266,10 @@ class GSUP_Orders {
 		$freight = GSUP_AliExpress::choose_freight( $options );
 		$cost    = round( (float) $sku['price'] * $qty + (float) $freight['fee'], 2 );
 		$paid    = (float) $item->get_total() - (float) $order->get_total_refunded_for_item( $item_id );
+		$share   = GSUP_Givsen::child_share( $order );
+		if ( $share ) {
+			$paid = ( $share['unit'] + $share['shipping'] ) * $qty; // Paid on the parent order.
+		}
 		if ( self::loss_guard() && $cost > $paid ) {
 			return new WP_Error(
 				'gsup_loss',
@@ -333,6 +340,7 @@ class GSUP_Orders {
 		$name    = trim( $get( 'first_name' ) . ' ' . $get( 'last_name' ) );
 		$phone   = 'shipping' === $use ? trim( (string) $order->get_shipping_phone() ) : '';
 		$phone   = '' !== $phone ? $phone : trim( (string) $order->get_billing_phone() );
+		$phone   = '' !== $phone ? $phone : GSUP_Givsen::fallback_phone( $order );
 		$street  = $get( 'address_1' );
 		$company = $get( 'company' );
 
@@ -583,7 +591,7 @@ class GSUP_Orders {
 
 	/** Advanced Shipment Tracking (zorem), when active. */
 	private static function to_ast( WC_Order $order, array $numbers, $carrier ) {
-		if ( ! function_exists( 'ast_insert_tracking_number' ) ) {
+		if ( ! function_exists( 'ast_insert_tracking_number' ) || GSUP_Givsen::hide_from_buyer( $order ) ) {
 			return;
 		}
 		$provider = (string) apply_filters( 'gsup_ast_provider', 'Cainiao', $carrier, $order );
@@ -600,8 +608,8 @@ class GSUP_Orders {
 
 	/** @return array<int,array{name:string,numbers:string[],carrier:string}> */
 	private static function customer_tracking( WC_Order $order ) {
-		if ( function_exists( 'ast_insert_tracking_number' ) ) {
-			return array(); // Advanced Shipment Tracking shows it.
+		if ( function_exists( 'ast_insert_tracking_number' ) || GSUP_Givsen::hide_from_buyer( $order ) ) {
+			return array(); // Advanced Shipment Tracking shows it / a gift's tracking would show the buyer where it went.
 		}
 		$out = array();
 		foreach ( $order->get_items() as $item ) {

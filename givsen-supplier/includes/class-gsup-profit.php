@@ -274,6 +274,27 @@ class GSUP_Profit {
 		if ( ! $lines ) {
 			return null;
 		}
+		$share = class_exists( 'GSUP_Givsen' ) ? GSUP_Givsen::child_share( $order ) : null;
+		if ( $share ) {
+			// Givsen Business gifting: this $0 order is one recipient's share of the paid parent.
+			foreach ( $lines as &$l ) {
+				$l['revenue'] = $share['unit'] * $l['qty'];
+				$l['profit']  = null === $l['cost'] ? null : $l['revenue'] - $l['cost'];
+			}
+			unset( $l );
+			$revenue = $share['revenue'];
+			$fees    = $share['fees'];
+			$profit  = $revenue - $cost - $fees;
+			return array(
+				'revenue' => $revenue,
+				'cost'    => $cost,
+				'fees'    => $fees,
+				'profit'  => $profit,
+				'margin'  => $revenue > 0 ? $profit / $revenue : null,
+				'lines'   => $lines,
+				'unknown' => $unknown,
+			);
+		}
 		// Refunds include their tax, so take refunded tax back out of the tax figure to avoid counting it twice.
 		$refunded     = (float) $order->get_total_refunded();
 		$tax_refunded = (float) $order->get_total_tax_refunded();
@@ -316,6 +337,9 @@ class GSUP_Profit {
 			return $cached['summary'];
 		}
 		$s = self::order_summary( $order );
+		if ( class_exists( 'GSUP_Givsen' ) && GSUP_Givsen::is_corporate_child( $order ) ) {
+			return $s; // Follows the parent order, which can change without this one changing.
+		}
 		foreach ( $s ? $s['lines'] : array() as $line ) {
 			if ( 'current' === $line['source'] ) {
 				return $s; // Depends on today's product costs: work it out fresh each time.

@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.8.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.8.1 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -127,6 +127,9 @@ Drops the import list table and the plugin's options. Keeps product links and or
 
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
+
+## Givsen gift plugin
+`GSUP_Givsen` (active when `givsen_is_gift_order()` exists). `_givsen_mode` corporate → never queued/placed, panel explains. corporate_child → loss check and profit from `child_share()` = parent line total ÷ quantity + parent shipping ÷ quantity, fees ÷ quantity (not cached on the child). Phone: shipping → billing → parent billing (child) → `gsup_fallback_phone`. `hide_from_buyer()` = `givsen_is_gift_order()` and `_givsen_address_by` ≠ sender → no tracking in customer emails/My Account, no AST. Delivered email: personal gift → buyer ("to {first name}", via `givsen_greeting_first_name()`); corporate_child → billing email (the recipient's) or nobody; corporate parent → nobody. Report adds fee-only orders (`_givsen_postage_for`) as revenue.
 
 ## Backup supplier
 `_gsup_backup` = {product_id, ship, map {item ID: SKU ID}, saved_at}. Saved from Change supplier ("Save as backup"). Sync `try_backup()`: triggers — listing gone/not for sale (before drafting), any option gone, max option cost rise > `gsup_backup_rise`% (default 15) when the backup (price + one delivery quote) is cheaper for the mapped items. Usable only if on sale, every mapped SKU exists in the backup's warehouse and isn't out of stock. Switch via `GSUP_Remap::switch_to()` (no reprice, republish if drafted by sync); for a price rise the old listing becomes the backup. Report keys `switched`, `backup_failed`. Off with `gsup_backup_auto` = no.

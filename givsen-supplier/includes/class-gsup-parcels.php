@@ -289,12 +289,20 @@ class GSUP_Parcels {
 
 	/** "Your order has been delivered", in WooCommerce's email style. */
 	private static function send_delivered_email( WC_Order $order ) {
-		$to = (array) apply_filters( 'gsup_delivered_email_recipients', array( $order->get_billing_email() ), $order );
-		$to = array_filter( array_map( 'sanitize_email', $to ), 'is_email' );
+		$gift = GSUP_Givsen::delivered_email( $order );
+		$to   = (array) apply_filters( 'gsup_delivered_email_recipients', $gift ? $gift['to'] : array( $order->get_billing_email() ), $order );
+		$to   = array_filter( array_map( 'sanitize_email', $to ), 'is_email' );
 		if ( ! $to || ! function_exists( 'WC' ) ) {
 			return;
 		}
 		$mailer  = WC()->mailer();
+		if ( $gift && ! empty( $gift['subject'] ) ) {
+			$heading = (string) apply_filters( 'gsup_delivered_email_heading', $gift['heading'], $order );
+			$body    = (string) apply_filters( 'gsup_delivered_email_body', $gift['body'], $order );
+			$mailer->send( implode( ',', $to ), $gift['subject'], $mailer->wrap_message( $heading, $body ) );
+			$order->add_order_note( 'Givsen Supplier: “gift delivered” email sent to ' . implode( ', ', $to ) . '.' );
+			return;
+		}
 		$site    = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 		$heading = (string) apply_filters( 'gsup_delivered_email_heading', 'Your order has been delivered', $order );
 		$name    = $order->get_shipping_first_name() ? $order->get_shipping_first_name() : $order->get_billing_first_name();

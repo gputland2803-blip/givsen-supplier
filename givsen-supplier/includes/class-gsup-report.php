@@ -52,6 +52,12 @@ class GSUP_Report {
 			foreach ( $result->orders as $order ) {
 				$s = GSUP_Profit::cached_order_summary( $order );
 				if ( ! $s ) {
+					// No products (e.g. a Givsen extra-postage payment): still money in.
+					$extra            = (float) $order->get_total() - (float) $order->get_total_tax() - ( (float) $order->get_total_refunded() - (float) $order->get_total_tax_refunded() );
+					$fee              = (float) $order->get_total() > 0 ? GSUP_Profit::fee( $order->get_total() ) + GSUP_Profit::fee_fixed() : 0.0;
+					$data['revenue'] += $extra;
+					$data['fees']    += $fee;
+					$data['profit']  += $extra - $fee;
 					continue;
 				}
 				++$data['orders'];

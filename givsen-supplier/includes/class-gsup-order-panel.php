@@ -99,6 +99,9 @@ class GSUP_Order_Panel {
 	 */
 	private static function readiness( WC_Order $order ) {
 		$status = $order->get_status();
+		if ( GSUP_Givsen::is_corporate_parent( $order ) ) {
+			return array( 'done', 'Givsen Business gifting — nothing to order from this one. Each recipient’s claim creates its own order, and that’s the one to place on AliExpress.' );
+		}
 		if ( 'givsen-pending' === $status ) {
 			return array( 'stop', 'Don’t order yet — waiting for the gift recipient’s address.' );
 		}

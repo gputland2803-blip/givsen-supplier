@@ -797,6 +797,7 @@ class GSUP_Admin_Page {
 			echo '<option value="' . esc_attr( $value ) . '"' . selected( $pref, $value, false ) . '>' . esc_html( $label ) . '</option>';
 		}
 		echo '</select><p class="description">Also used for the delivery fee in your costs and prices.</p></td></tr>';
+		echo '<tr><th scope="row"><label for="gsup_fallback_phone">Phone for the courier</label></th><td><input type="tel" id="gsup_fallback_phone" name="fallback_phone" class="regular-text" value="' . esc_attr( get_option( 'gsup_fallback_phone', '' ) ) . '" placeholder="e.g. +61 2 1234 5678"><p class="description">AliExpress needs a phone number. Used only when an order has none — e.g. a gift recipient who left theirs blank' . ( GSUP_Givsen::active() ? ' (for Givsen Business gifting, the business’s phone is tried first)' : '' ) . '.</p></td></tr>';
 		echo '<tr><th scope="row">Safety</th><td><label><input type="checkbox" name="guard" value="yes"' . checked( GSUP_Orders::loss_guard(), true, false ) . '> Don’t place an item if AliExpress would charge more than the customer paid for it</label></td></tr>';
 		$when = GSUP_Parcels::complete_when();
 		echo '<tr><th scope="row"><label for="gsup_complete_when">Mark orders Completed</label></th><td><select id="gsup_complete_when" name="complete_when">';
@@ -1289,6 +1290,7 @@ class GSUP_Admin_Page {
 		$when = isset( $_POST['complete_when'] ) ? sanitize_key( wp_unslash( $_POST['complete_when'] ) ) : 'tracking';
 		update_option( 'gsup_complete_when', in_array( $when, array( 'tracking', 'delivered', 'no' ), true ) ? $when : 'tracking', false );
 		update_option( 'gsup_delivered_email', isset( $_POST['delivered_email'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_fallback_phone', isset( $_POST['fallback_phone'] ) ? mb_substr( sanitize_text_field( wp_unslash( $_POST['fallback_phone'] ) ), 0, 30 ) : '', false );
 		update_option( 'gsup_late_notrack_days', max( 1, min( 60, isset( $_POST['notrack_days'] ) ? (int) $_POST['notrack_days'] : 7 ) ), false );
 		update_option( 'gsup_late_grace_days', max( 0, min( 60, isset( $_POST['grace_days'] ) ? (int) $_POST['grace_days'] : 5 ) ), false );
 		// phpcs:enable
