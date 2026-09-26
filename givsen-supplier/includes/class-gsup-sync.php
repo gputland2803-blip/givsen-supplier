@@ -47,8 +47,31 @@ class GSUP_Sync {
 		return max( 1, (float) get_option( 'gsup_backup_rise', 15 ) );
 	}
 
+	/**
+	 * How the sync treats your prices when AliExpress costs change:
+	 * 'no' — never change them (default); 'low' — only raise a price whose margin has fallen below your minimum,
+	 * up to the pricing rule (never lowers); 'yes' — regular prices always follow the pricing rule.
+	 */
+	public static function price_mode() {
+		$v = get_option( 'gsup_sync_prices', 'no' );
+		return in_array( $v, array( 'no', 'low', 'yes' ), true ) ? $v : 'no';
+	}
+
 	public static function update_prices() {
-		return 'yes' === get_option( 'gsup_sync_prices', 'no' );
+		return 'no' !== self::price_mode();
+	}
+
+	/**
+	 * Stock to show for an AliExpress stock level: "sold out" below your threshold, and never more than your cap.
+	 */
+	public static function store_qty( $ae_qty ) {
+		$qty = max( 0, (int) $ae_qty );
+		$min = max( 0, (int) get_option( 'gsup_stock_min', 0 ) );
+		$cap = max( 0, (int) get_option( 'gsup_stock_cap', 0 ) );
+		if ( $min && $qty < $min ) {
+			return 0;
+		}
+		return $cap ? min( $qty, $cap ) : $qty;
 	}
 
 	/** Daily at about 3am store time, while sync is switched on. */
@@ -509,7 +532,7 @@ class GSUP_Sync {
 				++$report['stock_changes'];
 			}
 		} else {
-			$qty = max( 0, (int) $sku['stock'] );
+			$qty = self::store_qty( $sku['stock'] );
 			if ( ! $item->get_manage_stock() || (int) $item->get_stock_quantity() !== $qty ) {
 				$item->set_manage_stock( true );
 				$item->set_stock_quantity( $qty );
@@ -546,9 +569,15 @@ class GSUP_Sync {
 			$new_total = (float) $cost + ( $had_ship ? $ship : 0 );
 			$old_total = $old_cost + ( $had_ship ? (float) $old_ship : 0 );
 			$rose      = $old_cost > 0 && $new_total > $old_total + 0.004;
-			if ( self::update_prices() ) {
-				$price = GSUP_Creator::price_for( $cost, $ship );
-				if ( '' !== $price && (string) $item->get_regular_price() !== (string) $price ) {
+			$mode  = self::price_mode();
+			$price = 'no' === $mode ? '' : GSUP_Creator::price_for( $cost, $ship );
+			if ( 'low' === $mode && '' !== $price ) {
+				// Only step in when the margin has dropped below your minimum, and only upwards.
+				$fig   = GSUP_Profit::figures( $item->get_regular_price(), (float) $cost + $ship );
+				$price = $fig && $fig['margin'] * 100 < GSUP_Profit::min_margin() && (float) $price > (float) $item->get_regular_price() ? $price : '';
+			}
+			if ( '' !== $price ) {
+				if ( (string) $item->get_regular_price() !== (string) $price ) {
 					$item->set_regular_price( $price );
 					$changed = true;
 					++$report['price_changes'];

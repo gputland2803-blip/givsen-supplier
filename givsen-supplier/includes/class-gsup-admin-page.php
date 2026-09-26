@@ -745,7 +745,19 @@ class GSUP_Admin_Page {
 		wp_nonce_field( 'gsup_save_sync' );
 		echo '<table class="form-table gsup-settings"><tbody>';
 		echo '<tr><th scope="row">Daily sync</th><td><label><input type="checkbox" name="enabled" value="yes"' . checked( GSUP_Sync::enabled(), true, false ) . '> Run every day</label></td></tr>';
-		echo '<tr><th scope="row">Prices</th><td><label><input type="checkbox" name="prices" value="yes"' . checked( GSUP_Sync::update_prices(), true, false ) . '> Also update my prices from the pricing rule when AliExpress costs change</label><p class="description">Off: only your cost is recorded and your prices stay as you set them. On: regular prices follow cost × your pricing rule (sale prices are never touched).</p></td></tr>';
+		$mode = GSUP_Sync::price_mode();
+		echo '<tr><th scope="row">Prices</th><td><fieldset>';
+		foreach (
+			array(
+				'no'   => array( 'Never change my prices', 'Only your cost is recorded.' ),
+				'low'  => array( 'Raise a price only when its margin falls below ' . GSUP_Profit::min_margin() . '%', 'Up to your pricing rule; never lowers a price. Recommended.' ),
+				'yes'  => array( 'Always follow my pricing rule', 'Regular prices go up and down with AliExpress costs.' ),
+			) as $value => $text
+		) {
+			echo '<label style="display:block;margin-bottom:4px"><input type="radio" name="prices" value="' . esc_attr( $value ) . '"' . checked( $mode, $value, false ) . '> ' . esc_html( $text[0] ) . ' <span class="gsup-meta">— ' . esc_html( $text[1] ) . '</span></label>';
+		}
+		echo '<p class="description">Sale prices are never touched.</p></fieldset></td></tr>';
+		echo '<tr><th scope="row">Stock buffer</th><td>Show as sold out when AliExpress has fewer than <input type="number" name="stock_min" min="0" max="1000" class="small-text" value="' . esc_attr( (int) get_option( 'gsup_stock_min', 0 ) ) . '"> left, and show at most <input type="number" name="stock_cap" min="0" max="100000" class="small-text" value="' . esc_attr( (int) get_option( 'gsup_stock_cap', 0 ) ) . '"> in stock.<p class="description">0 = off. Stops you selling the last few units other shops are also selling, and hides how much stock the supplier has. Applies from the next sync and to new products.</p></td></tr>';
 		echo '<tr><th scope="row">Backup suppliers</th><td><label><input type="checkbox" name="backup_auto" value="yes"' . checked( GSUP_Sync::backup_auto(), true, false ) . '> Switch to a product’s backup supplier automatically</label> when its listing is removed, an option disappears, or its cost rises more than <input type="number" name="backup_rise" min="1" max="200" step="1" class="small-text" value="' . esc_attr( GSUP_Sync::backup_rise() ) . '">% and the backup is cheaper.<p class="description">Save a backup from a product’s <strong>Change supplier…</strong> button. Your prices are never changed by a switch; you’re emailed each time.</p></td></tr>';
 		echo '<tr><th scope="row"><label for="gsup_sync_email">Email summaries to</label></th><td><input type="email" id="gsup_sync_email" name="email" class="regular-text" value="' . esc_attr( $email ) . '"><p class="description">Only sent when something needs your attention.</p></td></tr>';
 		echo '</tbody></table><p><button type="submit" class="button button-primary">Save sync settings</button></p></form>';
@@ -1231,7 +1243,10 @@ class GSUP_Admin_Page {
 		self::guard( 'gsup_save_sync' );
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
 		update_option( 'gsup_sync_enabled', isset( $_POST['enabled'] ) ? 'yes' : 'no', false );
-		update_option( 'gsup_sync_prices', isset( $_POST['prices'] ) ? 'yes' : 'no', false );
+		$mode = isset( $_POST['prices'] ) ? sanitize_key( wp_unslash( $_POST['prices'] ) ) : 'no';
+		update_option( 'gsup_sync_prices', in_array( $mode, array( 'no', 'low', 'yes' ), true ) ? $mode : 'no', false );
+		update_option( 'gsup_stock_min', max( 0, isset( $_POST['stock_min'] ) ? (int) $_POST['stock_min'] : 0 ), false );
+		update_option( 'gsup_stock_cap', max( 0, isset( $_POST['stock_cap'] ) ? (int) $_POST['stock_cap'] : 0 ), false );
 		update_option( 'gsup_backup_auto', isset( $_POST['backup_auto'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_backup_rise', max( 1, min( 200, isset( $_POST['backup_rise'] ) ? (float) $_POST['backup_rise'] : 15 ) ), false );
 		$email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';

@@ -404,7 +404,7 @@ class GSUP_Creator {
 			$wc->set_stock_status( 'instock' );
 		} else {
 			$wc->set_manage_stock( true );
-			$wc->set_stock_quantity( max( 0, (int) $sku['stock'] ) );
+			$wc->set_stock_quantity( GSUP_Sync::store_qty( $sku['stock'] ) );
 		}
 	}
 
