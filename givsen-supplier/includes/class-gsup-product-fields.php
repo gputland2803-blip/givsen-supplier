@@ -69,6 +69,7 @@ class GSUP_Product_Fields {
 				echo '<br><span class="gsup-meta">No backup supplier. Use <em>Change supplier…</em> → <em>Save as backup</em> to add one.</span>';
 			}
 			echo '</p>';
+			echo GSUP_Sources::panel_html( $id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside.
 		}
 		echo '</div>';
 

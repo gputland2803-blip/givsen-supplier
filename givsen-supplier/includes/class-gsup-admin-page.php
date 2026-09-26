@@ -15,7 +15,7 @@ class GSUP_Admin_Page {
 		add_filter( 'woocommerce_screen_ids', array( __CLASS__, 'screen_ids' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'assets' ), 20 );
 		add_action( 'admin_notices', array( __CLASS__, 'product_screen_notices' ) );
-		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_eta', 'ae_log_clear', 'ae_log_save', 'save_ai' ) as $action ) {
+		foreach ( array( 'add_manual', 'link', 'dismiss', 'restore', 'delete', 'refresh', 'regen_key', 'ae_save_app', 'ae_connect', 'ae_disconnect', 'ae_test', 'create', 'save_pricing', 'save_sync', 'sync_now', 'save_auto', 'save_profit', 'save_cbr', 'cbr_inspect', 'cbr_apply', 'save_eta', 'ae_log_clear', 'ae_log_save', 'save_ai', 'save_worldwide', 'reach_now' ) as $action ) {
 			add_action( 'admin_post_gsup_' . $action, array( __CLASS__, 'handle_' . $action ) );
 		}
 	}
@@ -288,6 +288,7 @@ class GSUP_Admin_Page {
 			'ordering'   => array( 'Ordering & tracking', 'Ordering & tracking', 'Place paid orders on AliExpress automatically and bring tracking back.' ),
 			'pricing'    => array( 'Pricing & profit', 'Pricing, profit & delivery estimate', 'How new products are priced, how margin is worked out, and the delivery estimate customers see.' ),
 			'sync'       => array( 'Daily sync', 'Daily sync', 'Keep stock, costs and delivery fees in step with AliExpress.' ),
+			'worldwide'  => array( 'Selling worldwide', 'Selling worldwide', 'Where you sell, and where each warehouse of your AliExpress listings can deliver.' ),
 			'ai'         => array( 'AI writing', 'AI writing', 'Rewrite product titles and descriptions in your store’s voice with Claude.' ),
 			'countries'  => array( 'Country restrictions', 'Country restrictions', 'Show each product only in the countries its warehouse serves (CBR).' ),
 			'extension'  => array( 'Chrome extension', 'Chrome extension', 'Connect the Add to Givsen button to this store.' ),
@@ -336,6 +337,11 @@ class GSUP_Admin_Page {
 					return array( 'warn', 'Last run stopped' );
 				}
 				return $connected ? array( 'on', 'On' ) : array( 'warn', 'Needs AliExpress' );
+			case 'worldwide':
+				if ( GSUP_Sources::running() ) {
+					return array( 'info', 'Checking' );
+				}
+				return array( 'info', count( GSUP_Sources::countries() ) . ' countries' );
 			case 'countries':
 				return GSUP_CBR::enabled() ? array( 'on', 'On' ) : array( 'off', 'Off' );
 			case 'ai':
@@ -379,6 +385,9 @@ class GSUP_Admin_Page {
 				break;
 			case 'sync':
 				self::render_sync();
+				break;
+			case 'worldwide':
+				self::render_worldwide();
 				break;
 			case 'countries':
 				self::render_cbr();
@@ -546,6 +555,11 @@ class GSUP_Admin_Page {
 			echo '<p>Connect AliExpress in Settings first.</p>';
 			return;
 		}
+		$mode = isset( $_GET['mode'] ) && 'one' === $_GET['mode'] ? 'one' : 'all'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( 'all' === $mode ) {
+			self::render_create_all( $ae );
+			return;
+		}
 		$want    = 'NONE' === $want ? '' : $want;
 		$ship_to = 'US' === $want ? 'US' : 'AU';
 		$product = GSUP_AliExpress::get_product( $ae, $ship_to );
@@ -583,13 +597,14 @@ class GSUP_Admin_Page {
 			echo '<div class="notice notice-info inline"><p>Already in your store: ' . implode( ', ', $links ) . '. You can still add another product — for example the other warehouse.</p></div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
 
-		echo '<h2>1. Which warehouse?</h2><p class="gsup-meta">One product per warehouse, so Australians see Australian stock and US visitors see US stock.</p><p class="gsup-warehouses">';
+		echo self::create_mode_switch( $product['product_id'], 'one' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside.
+		echo '<h2>1. Which warehouse?</h2><p class="gsup-meta">One product for this warehouse only.</p><p class="gsup-warehouses">';
 		foreach ( $groups as $code => $skus ) {
 			$label = GSUP_Creator::warehouse_label( $code ) . ' (' . count( $skus ) . ')';
 			if ( (string) $code === $want ) {
 				echo '<span class="button button-primary" aria-current="true">' . esc_html( $label ) . '</span> ';
 			} else {
-				echo '<a class="button" href="' . esc_url( self::create_url( $product['product_id'], (string) $code, isset( $_GET['row'] ) ? absint( $_GET['row'] ) : 0 ) ) . '">' . esc_html( $label ) . '</a> '; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+				echo '<a class="button" href="' . esc_url( add_query_arg( 'mode', 'one', self::create_url( $product['product_id'], (string) $code, isset( $_GET['row'] ) ? absint( $_GET['row'] ) : 0 ) ) ) . '">' . esc_html( $label ) . '</a> '; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			}
 		}
 		echo '</p>';
@@ -610,7 +625,7 @@ class GSUP_Admin_Page {
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-create-form">';
 		echo '<input type="hidden" name="action" value="gsup_create">';
 		echo '<input type="hidden" name="ae" value="' . esc_attr( $product['product_id'] ) . '">';
-		echo '<input type="hidden" name="ship" value="' . esc_attr( '' === $want ? 'none' : $want ) . '">';
+		echo '<input type="hidden" name="ship" value="' . esc_attr( '' === $want ? 'none' : $want ) . '"><input type="hidden" name="mode" value="one">';
 		wp_nonce_field( 'gsup_create_' . $product['product_id'] );
 
 		echo '<h2>2. Which options?</h2>';
@@ -634,6 +649,114 @@ class GSUP_Admin_Page {
 		echo '</tbody></table>';
 		echo '<p class="gsup-meta">Prices use your pricing rule: cost × ' . esc_html( rtrim( rtrim( number_format( $rule['multiplier'], 2 ), '0' ), '.' ) ) . ( $rule['add'] ? ' + ' . esc_html( wc_format_decimal( $rule['add'], 2 ) ) : '' ) . ( $rule['round'] ? ', rounded to .95' : '' ) . ( $rule['shipping'] ? ' (cost includes delivery)' : '' ) . '. <a href="' . esc_url( gsup_settings_url( 'pricing' ) ) . '">Change it</a>.</p>';
 
+		self::render_create_common( $product, $groups[ $want ] );
+	}
+
+	/** "All warehouses in one product" / "One warehouse only". */
+	private static function create_mode_switch( $ae, $mode ) {
+		$row  = isset( $_GET['row'] ) ? absint( $_GET['row'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$html = '<p class="gsup-warehouses"><strong>Add as:</strong> ';
+		foreach ( array( 'all' => 'All warehouses in one product', 'one' => 'One warehouse only' ) as $m => $label ) {
+			$html .= $m === $mode
+				? '<span class="button button-primary" aria-current="true">' . esc_html( $label ) . '</span> '
+				: '<a class="button" href="' . esc_url( add_query_arg( 'mode', $m, self::create_url( $ae, null, $row ) ) ) . '">' . esc_html( $label ) . '</a> ';
+		}
+		return $html . '</p>';
+	}
+
+	/**
+	 * Add to store, all warehouses in one product: one row per option (values without Ships From), showing each
+	 * warehouse that has it with cost, stock and delivery. The main warehouse (price and orders) is the preferred one
+	 * with stock: Australia, your store's country, United States, then the rest.
+	 */
+	private static function render_create_all( $ae ) {
+		$all = GSUP_Creator::all_warehouses( $ae );
+		if ( is_wp_error( $all ) ) {
+			echo '<div class="notice notice-error inline"><p>' . esc_html( $all->get_error_message() ) . '</p></div>';
+			return;
+		}
+		$product = $all['listing'];
+		if ( ! $all['groups'] ) {
+			echo '<div class="notice notice-warning inline"><p>This AliExpress listing has no options for sale right now.</p></div>';
+			return;
+		}
+		$pairs = array( array( $product['product_id'], '' ) );
+		foreach ( $product['skus'] as $sku ) {
+			$pairs[] = array( $product['product_id'], $sku['sku_id'] );
+		}
+		gsup_prime_links( $pairs );
+		$existing = gsup_find_linked( $product['product_id'] );
+
+		echo '<div class="gsup-test-result">';
+		if ( '' !== $product['image'] ) {
+			echo '<img src="' . esc_url( $product['image'] ) . '" alt="" referrerpolicy="no-referrer">';
+		}
+		echo '<div><a href="' . esc_url( gsup_ae_url( $product['product_id'] ) ) . '" target="_blank" rel="noopener noreferrer"><strong>' . esc_html( $product['title'] ) . '</strong> ↗</a>';
+		echo '<div class="gsup-meta">Product ' . esc_html( $product['product_id'] ) . ( $product['on_sale'] ? '' : ' · <strong>not for sale on AliExpress right now</strong>' ) . '</div></div></div>';
+		if ( $existing ) {
+			$links = array();
+			foreach ( $existing as $wc_id ) {
+				$links[] = '<a href="' . esc_url( gsup_product_edit_url( $wc_id ) ) . '">' . esc_html( gsup_product_label( $wc_id ) ) . '</a>';
+			}
+			echo '<div class="notice notice-info inline"><p>Already in your store: ' . implode( ', ', $links ) . '.</p></div>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+		echo self::create_mode_switch( $product['product_id'], 'all' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped inside.
+
+		$whs = array();
+		foreach ( $all['groups'] as $by_wh ) {
+			foreach ( array_keys( $by_wh ) as $wh ) {
+				$whs[ $wh ] = true;
+			}
+		}
+		$labels = array_map( array( 'GSUP_Sources', 'label' ), GSUP_Sources::sort_warehouses( array_keys( $whs ) ) );
+		echo '<h2>1. Warehouses</h2><p class="gsup-meta">This listing ships from ' . esc_html( implode( ', ', $labels ) ) . '. Every warehouse that has an option is kept as a source for it; the first one (bold) is its main warehouse — its cost sets the price and orders use it for now.</p>';
+		foreach ( $all['freights'] as $wh => $f ) {
+			if ( is_wp_error( $f ) ) {
+				echo '<div class="notice notice-warning inline"><p>No delivery quote from ' . esc_html( GSUP_Sources::label( $wh ) ) . ': ' . esc_html( $f->get_error_message() ) . '</p></div>';
+			}
+		}
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-create-form">';
+		echo '<input type="hidden" name="action" value="gsup_create"><input type="hidden" name="mode" value="all">';
+		echo '<input type="hidden" name="ae" value="' . esc_attr( $product['product_id'] ) . '"><input type="hidden" name="ship" value="all">';
+		wp_nonce_field( 'gsup_create_' . $product['product_id'] );
+		echo '<h2>2. Which options?</h2>';
+		echo '<table class="widefat striped gsup-sku-table"><thead><tr><td class="check-column"><input type="checkbox" class="gsup-check-all" checked aria-label="Select all"></td><th>Option</th><th>Warehouses (cost · stock · delivery)</th><th>Your price</th><th>Margin</th></tr></thead><tbody>';
+		$name_skus = array();
+		foreach ( $all['groups'] as $by_wh ) {
+			$main      = GSUP_Creator::primary_of( $by_wh );
+			$sku       = $by_wh[ $main ];
+			$f         = $all['freights'][ $main ] ?? null;
+			$fee       = is_array( $f ) ? (float) $f['fee'] : 0.0;
+			$price     = (float) GSUP_Creator::price_for( $sku['price'], $fee );
+			$fig       = GSUP_Profit::figures( $price, (float) $sku['price'] + $fee );
+			$in_stock  = false;
+			$in_store  = false;
+			$chips     = array();
+			foreach ( $by_wh as $wh => $s ) {
+				$in_stock = $in_stock || 0 !== $s['stock'];
+				$in_store = $in_store || (bool) gsup_find_option_links( $product['product_id'], $s['sku_id'] );
+				$wf       = $all['freights'][ $wh ] ?? null;
+				$chips[]  = '<span class="gsup-chip' . ( $wh === $main ? ' gsup-chip--main' : '' ) . ( 0 === $s['stock'] ? ' gsup-chip--out' : '' ) . '">' . esc_html(
+					GSUP_Sources::label( $wh ) . ' · ' . gsup_money( $s['price'] ) . ' · ' . ( null === $s['stock'] ? 'in stock' : ( 0 === $s['stock'] ? 'out of stock' : $s['stock'] . ' left' ) )
+					. ( is_array( $wf ) ? ' · ' . ( 0.0 === (float) $wf['fee'] ? 'free delivery' : gsup_money( $wf['fee'] ) . ' delivery' ) . ( $wf['max_days'] ? ' ' . (int) $wf['min_days'] . '–' . (int) $wf['max_days'] . 'd' : '' ) : '' )
+				) . '</span>';
+			}
+			$name_skus[] = $sku;
+			$text        = GSUP_Creator::option_text( $sku );
+			echo '<tr><th scope="row" class="check-column"><input type="checkbox" name="sku_ids[]" value="' . esc_attr( $sku['sku_id'] ) . '"' . checked( ! $in_store && $in_stock, true, false ) . '></th>';
+			echo '<td>' . esc_html( '' !== $text ? $text : '(single option)' ) . ( $in_store ? '<div class="gsup-meta">Already in your store</div>' : '' ) . '</td>';
+			echo '<td>' . implode( ' ', $chips ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
+			echo '<td>' . wp_kses_post( wc_price( $price ) ) . '</td><td>' . esc_html( $fig ? GSUP_Profit::pct( $fig['margin'] ) : '—' ) . '</td></tr>';
+		}
+		echo '</tbody></table>';
+		$rule = GSUP_Creator::rule();
+		echo '<p class="gsup-meta">Delivery is quoted from each warehouse to its own country (Australia, United States) or yours. Prices use your pricing rule on the main warehouse’s cost: × ' . esc_html( rtrim( rtrim( number_format( $rule['multiplier'], 2 ), '0' ), '.' ) ) . ( $rule['add'] ? ' + ' . esc_html( wc_format_decimal( $rule['add'], 2 ) ) : '' ) . ( $rule['round'] ? ', rounded to .95' : '' ) . ( $rule['shipping'] ? ' (cost includes delivery)' : '' ) . '. After creating, delivery to each of your selling countries is checked in the background.</p>';
+		self::render_create_common( $product, $name_skus );
+	}
+
+	/** Add to store steps shared by both modes: category, title, option names, what to bring, Create. */
+	private static function render_create_common( array $product, array $name_skus ) {
 		// Categories: from the import row (chosen in the extension), else the last ones used.
 		$row_id   = isset( $_GET['row'] ) ? absint( $_GET['row'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$row      = $row_id ? GSUP_Import::get( $row_id ) : null;
@@ -659,7 +782,7 @@ class GSUP_Admin_Page {
 
 		// Option names and values, tidied and editable. Links are by SKU ID, so these can be anything.
 		$opt_names = array();
-		foreach ( $groups[ $want ] as $sku ) {
+		foreach ( $name_skus as $sku ) {
 			foreach ( $sku['props'] as $prop ) {
 				if ( ! $prop['is_ship'] ) {
 					$opt_names[ $prop['name'] ][ $prop['value'] ] = true;
@@ -732,6 +855,57 @@ class GSUP_Admin_Page {
 		echo '<tr><th scope="row">Delivery</th><td><label><input type="checkbox" name="shipping" value="yes"' . checked( $r['shipping'], true, false ) . '> Add AliExpress’s delivery fee to the cost before applying the rule</label><p class="description">The fee is quoted by AliExpress for your shipping method preference and kept up to date by the daily sync.</p></td></tr>';
 		echo '<tr><th scope="row">Example</th><td>AliExpress cost 10.00' . ( $r['shipping'] ? ' + delivery 3.00' : '' ) . ' → your price <strong>' . wp_kses_post( wc_price( (float) GSUP_Creator::price_for( 10, 3 ) ) ) . '</strong></td></tr>';
 		echo '</tbody></table><p><button type="submit" class="button button-primary">Save pricing</button></p></form>';
+	}
+
+	/** Settings → Selling worldwide: selling countries, stock rule, weekly reach refresh. */
+	private static function render_worldwide() {
+		$countries = function_exists( 'WC' ) && WC()->countries ? WC()->countries->get_countries() : array();
+		$selected  = GSUP_Sources::countries();
+		$est       = GSUP_Sources::estimate();
+		$last      = get_option( GSUP_Sources::OPT_LAST );
+		$run       = GSUP_Sources::running();
+
+		echo '<p>One store product can be supplied from every warehouse its AliExpress listing ships from (Australia, China, United States…). Each week, for every linked product and every country below, AliExpress is asked which options it can deliver there, from which warehouse, at what cost and how fast. That’s what the shop will use to show delivery times and hide what can’t reach a visitor.</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="gsup-save-form">';
+		echo '<input type="hidden" name="action" value="gsup_save_worldwide">';
+		wp_nonce_field( 'gsup_save_worldwide' );
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row"><label for="gsup_sell_countries">Selling countries</label></th><td><select id="gsup_sell_countries" name="countries[]" multiple class="wc-enhanced-select" style="min-width:420px;min-height:160px" data-placeholder="Choose countries">';
+		foreach ( $selected as $code ) {
+			echo '<option value="' . esc_attr( $code ) . '" selected>' . esc_html( $countries[ $code ] ?? $code ) . '</option>';
+		}
+		foreach ( $countries as $code => $name ) {
+			if ( ! in_array( $code, $selected, true ) ) {
+				echo '<option value="' . esc_attr( $code ) . '">' . esc_html( $name ) . '</option>';
+			}
+		}
+		echo '</select><p class="description">Checked every week and kept ready for the shop. Default: Australia, New Zealand, United States, Canada, United Kingdom, Ireland, Germany, France, Netherlands, Sweden.</p></td></tr>';
+		echo '<tr><th scope="row">Other countries</th><td><label><input type="checkbox" name="others" value="yes"' . checked( GSUP_Sources::sell_others(), true, false ) . '> Also sell to other countries</label><p class="description">Checked with AliExpress when a visitor from one of them needs it (one call), not stored.</p></td></tr>';
+		echo '<tr><th scope="row">Stock shown in the shop</th><td><fieldset>';
+		foreach (
+			array(
+				'primary' => array( 'From each option’s main warehouse', 'As before. Recommended until orders are placed from any warehouse.' ),
+				'any'     => array( 'In stock if any warehouse that reaches a selling country has it', 'An option is only “gone” when no warehouse has it; if its main warehouse drops it, the best other warehouse takes over.' ),
+			) as $value => $text
+		) {
+			echo '<label style="display:block;margin-bottom:4px"><input type="radio" name="stock_rule" value="' . esc_attr( $value ) . '"' . checked( GSUP_Sources::stock_rule(), $value, false ) . '> ' . esc_html( $text[0] ) . ' <span class="gsup-meta">— ' . esc_html( $text[1] ) . '</span></label>';
+		}
+		echo '</fieldset></td></tr>';
+		echo '</tbody></table>';
+		echo '<p><button type="submit" class="button button-primary">Save selling worldwide</button></p></form>';
+
+		echo '<h3>AliExpress calls</h3>';
+		echo '<p>About <strong>' . esc_html( number_format_i18n( $est['weekly'] ) ) . '</strong> calls a week for the reach check: ' . (int) $est['products'] . ' linked product(s) × ' . (int) $est['countries'] . ' countries × (1 listing + ' . esc_html( $est['warehouses'] ) . ' delivery quote(s) for the warehouses each has, on average). The daily sync adds about ' . esc_html( number_format_i18n( $est['daily'] ) ) . ' a day. Calls run a few at a time in the background.</p>';
+		if ( $run ) {
+			echo '<div class="notice notice-info inline"><p><strong>Checking reach:</strong> ' . (int) $run['pos'] . ' of ' . count( $run['ids'] ) . ' products done. <a href="' . esc_url( gsup_settings_url( 'worldwide' ) ) . '">Refresh</a> to see progress.</p></div>';
+		} elseif ( is_array( $last ) ) {
+			echo '<p class="gsup-meta">Last check: ' . esc_html( wp_date( 'j M Y, g:ia', (int) $last['finished'] ) ) . ' — ' . (int) $last['done'] . ' of ' . (int) $last['total'] . ' products, ' . esc_html( number_format_i18n( (int) $last['rows'] ) ) . ' country × warehouse × option results' . ( $last['failed'] ? ', ' . (int) $last['failed'] . ' couldn’t be checked' : '' ) . '.</p>';
+		} else {
+			echo '<p class="gsup-meta">Not checked yet. It runs every Monday at about 4am (while the daily sync is on), or now:</p>';
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="gsup_reach_now">';
+		wp_nonce_field( 'gsup_reach_now' );
+		echo '<button type="submit" class="button"' . disabled( (bool) $run || ! GSUP_AliExpress::is_connected(), true, false ) . '>Check all products now</button></form>';
 	}
 
 	private static function render_sync() {
@@ -1330,15 +1504,30 @@ class GSUP_Admin_Page {
 		$skus  = isset( $_POST['sku_ids'] ) && is_array( $_POST['sku_ids'] ) ? array_map( 'gsup_parse_sku_id', array_map( 'sanitize_text_field', wp_unslash( $_POST['sku_ids'] ) ) ) : array();
 		$cats  = isset( $_POST['category_ids'] ) && is_array( $_POST['category_ids'] ) ? gsup_clean_category_ids( wp_unslash( $_POST['category_ids'] ) ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- cleaned to real category IDs.
 		// phpcs:enable
-		$back = gsup_admin_url( array( 'tab' => 'create', 'ae' => $ae, 'ship' => '' === $ship ? 'none' : $ship ) );
+		$back = gsup_admin_url( array( 'tab' => 'create', 'ae' => $ae, 'ship' => '' === $ship ? 'none' : $ship, 'mode' => 'one' ) );
 
-		$product = GSUP_AliExpress::get_product( $ae, 'US' === $ship ? 'US' : 'AU' );
-		if ( is_wp_error( $product ) ) {
-			gsup_flash( esc_html( $product->get_error_message() ), 'error' );
-			wp_safe_redirect( $back );
-			exit;
+		$all_mode = isset( $_POST['mode'] ) && 'all' === $_POST['mode']; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- checked in guard().
+		$opts     = self::posted_create_options();
+		if ( $all_mode ) {
+			$back = gsup_admin_url( array( 'tab' => 'create', 'ae' => $ae ) );
+			$data = GSUP_Creator::all_warehouses( $ae );
+			if ( is_wp_error( $data ) ) {
+				gsup_flash( esc_html( $data->get_error_message() ), 'error' );
+				wp_safe_redirect( $back );
+				exit;
+			}
+			$product          = $data['listing'];
+			$ship             = '*';
+			$opts['sources']  = $data['groups'];
+			$opts['freights'] = $data['freights'];
+		} else {
+			$product = GSUP_AliExpress::get_product( $ae, 'US' === $ship ? 'US' : 'AU' );
+			if ( is_wp_error( $product ) ) {
+				gsup_flash( esc_html( $product->get_error_message() ), 'error' );
+				wp_safe_redirect( $back );
+				exit;
+			}
 		}
-		$opts              = self::posted_create_options();
 		$opts['page_text'] = GSUP_Import::page_text_for( $product['product_id'] );
 		$id                = GSUP_Creator::create( $product, $ship, array_filter( $skus ), $title, $cats, $opts );
 		if ( is_wp_error( $id ) ) {
@@ -1347,7 +1536,7 @@ class GSUP_Admin_Page {
 			exit;
 		}
 		update_user_meta( get_current_user_id(), 'gsup_last_categories', $cats );
-		gsup_flash( 'Draft product created from AliExpress with its supplier links set. Check the title, description' . ( $cats ? '' : ', category' ) . ' and prices, then click <strong>Publish</strong>.' );
+		gsup_flash( 'Draft product created from AliExpress with its supplier links set' . ( $all_mode ? ' — every warehouse kept as a source; delivery to your selling countries is being checked in the background' : '' ) . '. Check the title, description' . ( $cats ? '' : ', category' ) . ' and prices, then click <strong>Publish</strong>.' );
 		if ( '' !== GSUP_Creator::$description_note ) {
 			gsup_flash( esc_html( GSUP_Creator::$description_note ), 'info' );
 		}
@@ -1456,6 +1645,34 @@ class GSUP_Admin_Page {
 		delete_transient( 'gsup_schedules_ok' );
 		gsup_flash( 'Sync settings saved.' );
 		wp_safe_redirect( gsup_settings_url( 'sync' ) );
+		exit;
+	}
+
+	public static function handle_save_worldwide() {
+		self::guard( 'gsup_save_worldwide' );
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- checked in guard().
+		$list = isset( $_POST['countries'] ) && is_array( $_POST['countries'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['countries'] ) ) : array();
+		$all  = function_exists( 'WC' ) && WC()->countries ? WC()->countries->get_countries() : array();
+		$keep = array();
+		foreach ( $list as $c ) {
+			$c = strtoupper( $c );
+			if ( preg_match( '/^[A-Z]{2}$/', $c ) && ( ! $all || isset( $all[ $c ] ) ) ) {
+				$keep[ $c ] = $c;
+			}
+		}
+		update_option( 'gsup_sell_countries', array_values( $keep ), false );
+		update_option( 'gsup_sell_others', isset( $_POST['others'] ) ? 'yes' : 'no', false );
+		update_option( 'gsup_stock_rule', isset( $_POST['stock_rule'] ) && 'any' === $_POST['stock_rule'] ? 'any' : 'primary', false );
+		// phpcs:enable
+		gsup_flash( $keep ? 'Saved. ' . count( $keep ) . ' selling countries — they’re checked at the next weekly run, or click “Check all products now”.' : 'Saved. No selling countries chosen: only your store’s country is checked.', $keep ? 'success' : 'warning' );
+		wp_safe_redirect( gsup_settings_url( 'worldwide' ) );
+		exit;
+	}
+
+	public static function handle_reach_now() {
+		self::guard( 'gsup_reach_now' );
+		gsup_flash( GSUP_Sources::start( true ) ? 'Checking every product’s reach in the background — refresh this page to see progress.' : 'A check is already running, or AliExpress isn’t connected.', 'info' );
+		wp_safe_redirect( gsup_settings_url( 'worldwide' ) );
 		exit;
 	}
 

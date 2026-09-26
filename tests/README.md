@@ -16,6 +16,7 @@ install chromium`); without it they're skipped locally (never on GitHub). They c
 | `test-bulk.php` | Bulk import: batch dedupe (in the batch, in the store, in the import list, dismissed rows brought back), invalid IDs, 30-per-batch limit, "In store"/"In import list" status in two queries, and the background AliExpress check |
 | `test-combine.php` | Same-seller trial: grouping by seller and warehouse, one request per group, order numbers matched back to items, refused → one by one, no answer → never retried, the trial log, and splitting a shared order's cost |
 | `test-eta.php` | Delivery estimate wording |
+| `test-sources.php` | Selling worldwide: matching options across warehouses, union of per-country listings, reach refresh (deliverable / not offered / no quote / no answer / warehouse dropped), stock rules (main warehouse vs any; promotion; option gone), Add to store with all warehouses |
 | `test-tidy.php` | Title, option and description tidy-up, seller-note removal, specifics, description photos |
 | `test-remap.php` | Change supplier's automatic option matching |
 | `test-rename.php` | Renamed options staying distinct |

@@ -42,7 +42,7 @@ else
 fi
 
 echo "== Settings screens render"
-for s in overview aliexpress ordering pricing sync ai countries extension reports; do
+for s in overview aliexpress ordering pricing sync worldwide ai countries extension reports; do
   err=$(php tests/render-settings.php "$s" 2>&1 >/dev/null)
   if [ -n "$err" ]; then echo "FAILED: settings/$s"; echo "$err" | head -5; status=1; else echo "ok  settings/$s"; fi
 done

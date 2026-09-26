@@ -1,7 +1,7 @@
 <?php
 /**
- * Removes the import list, the plugin's settings and the AliExpress connection.
- * Supplier links, costs, delivery fees and sync notes on products, CBR restrictions, and AliExpress order/tracking
+ * Removes the import list, the reach table, the plugin's settings and the AliExpress connection.
+ * Supplier links and sources, costs, delivery fees and sync notes on products, CBR restrictions, and AliExpress order/tracking
  * numbers and costs on orders are kept,
  * so reinstalling picks up exactly where you left off.
  */
@@ -10,6 +10,7 @@ defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
 global $wpdb;
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}gsup_import" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}gsup_reach" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 delete_option( 'gsup_secret' );
 delete_option( 'gsup_db_version' );
 delete_option( 'gsup_ae_app_key' );
@@ -26,6 +27,7 @@ foreach (
 		'gsup_auto_order', 'gsup_auto_pay', 'gsup_combine_seller', 'gsup_combine_log', 'gsup_auto_loss_guard', 'gsup_complete_on_tracking', 'gsup_ship_pref',
 		'gsup_late_notrack_days', 'gsup_late_grace_days', 'gsup_delivered_email', 'gsup_complete_when',
 		'gsup_stock_min', 'gsup_stock_cap',
+		'gsup_sell_countries', 'gsup_sell_others', 'gsup_stock_rule', 'gsup_reach_run', 'gsup_reach_last',
 		'gsup_reviews_publish', 'gsup_fallback_phone', // gsup_reviews_publish: left by 0.8.0–0.8.1.
 		'gsup_eta_show', 'gsup_eta_processing', 'gsup_eta_format', 'gsup_eta_business',
 		'gsup_ae_log', 'gsup_ae_log_entries',
@@ -43,4 +45,7 @@ if ( function_exists( 'as_unschedule_all_actions' ) ) {
 	as_unschedule_all_actions( 'gsup_parcel_check', array(), 'givsen-supplier' );
 	as_unschedule_all_actions( 'gsup_place_order' );
 	as_unschedule_all_actions( 'gsup_enrich_rows' );
+	as_unschedule_all_actions( 'gsup_reach_start', array(), 'givsen-supplier' );
+	as_unschedule_all_actions( 'gsup_reach_batch', array(), 'givsen-supplier' );
+	as_unschedule_all_actions( 'gsup_sources_refresh', array(), 'givsen-supplier' );
 }

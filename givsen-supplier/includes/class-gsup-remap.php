@@ -534,7 +534,7 @@ class GSUP_Remap {
 			$sku    = '' !== $sku_id ? GSUP_AliExpress::find_sku( $new, $sku_id ) : null;
 			if ( ! $sku || $sku['ship_from'] !== $ship ) {
 				// No match on the new listing: keep it unsellable until you decide.
-				foreach ( array( GSUP_META_SKU, GSUP_META_OPTION ) as $key ) {
+				foreach ( array( GSUP_META_SKU, GSUP_META_OPTION, GSUP_Sources::META ) as $key ) {
 					$item->delete_meta_data( $key );
 				}
 				if ( $item->get_manage_stock() ) {
@@ -561,6 +561,7 @@ class GSUP_Remap {
 				$item->set_regular_price( $regular );                      // …keeping your price unless asked.
 			}
 			$item->delete_meta_data( GSUP_Sync::M_GONE );
+			$item->delete_meta_data( GSUP_Sources::META ); // Sources were on the old listing; refreshed below.
 			$item->save();
 			++$linked;
 		}
@@ -590,6 +591,12 @@ class GSUP_Remap {
 		wc_delete_product_transients( $product_id );
 		GSUP_Profit::refresh_flag( $product_id );
 		GSUP_CBR::apply( $product_id, array( $ship ) !== $old_ships ); // Warehouse changed → its countries.
+		if ( $old_pid !== (string) $new['product_id'] ) {
+			GSUP_Sources::forget( $product_id );
+			if ( function_exists( 'as_enqueue_async_action' ) ) {
+				GSUP_Sources::queue( array( $product_id ) ); // Find the new listing's other warehouses.
+			}
+		}
 
 		if ( $old_as_backup && '' !== $old_pid && $old_map && count( $old_ship_list ) <= 1 ) {
 			update_post_meta(

@@ -180,3 +180,10 @@ a.gsup-badge--on:hover { background: #d3edd9; color: #1e6b34; }
 .gsup-ai-old-desc { color: #50575e; font-size: 12px; max-height: 190px; overflow: auto; }
 .gsup-ai-new input, .gsup-ai-new textarea { margin-bottom: 6px; }
 @media (max-width: 960px) { .gsup-ai-cols { grid-template-columns: 1fr; } }
+
+/* Sources: one chip per warehouse (Supplier tab, Add to store). */
+.gsup-chip { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 8px; border: 1px solid #c3c4c7; border-radius: 999px; font-size: 12px; line-height: 20px; background: #fff; white-space: nowrap; }
+.gsup-chip--main { font-weight: 600; border-color: #2271b1; }
+.gsup-chip--out { color: #787c82; text-decoration: line-through; }
+.gsup-sources .form-field > span { display: block; margin-left: 162px; }
+@media (max-width: 782px) { .gsup-sources .form-field > span { margin-left: 0; } }

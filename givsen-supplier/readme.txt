@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.13.0
+Stable tag: 0.14.0
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -15,7 +15,8 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 * Product ID stored on the product; SKU ID, ships-from and option stored on each variation. Renaming never breaks a link.
 * Import list fed by the Givsen Supplier Chrome extension — one product at a time, or up to 30 at once from search results and store pages — or by pasting a link.
 * Connects to the AliExpress Dropshipping API to fill in exact option details.
-* Creates draft store products from AliExpress listings, one per warehouse, with your pricing rule.
+* Creates draft store products from AliExpress listings — all warehouses in one product (each kept as a source) or one per warehouse — with your pricing rule.
+* Knows where every warehouse can deliver: checked weekly for each of your selling countries (delivery cost, method, days, stock).
 * Daily sync with AliExpress for stock, cost and removed listings.
 * Order panel with the exact option to buy, copy-ready address, and fields for AliExpress order and tracking numbers.
 * Automatic ordering on AliExpress when an order reaches Processing, and tracking numbers back into the order.
@@ -32,6 +33,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.14.0 =
+* Selling worldwide, phase 1 (nothing changes for customers yet): every AliExpress warehouse kept as a source for each option, weekly reach check per selling country, daily sync of every source, Add to store with all warehouses in one product.
 
 = 0.13.0 =
 * Trial (off by default): send items from the same seller to AliExpress in one request, with order numbers matched back to each item and a log of what AliExpress did and charged.

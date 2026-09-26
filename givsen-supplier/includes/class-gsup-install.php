@@ -8,6 +8,12 @@ class GSUP_Install {
 		return $wpdb->prefix . 'gsup_import';
 	}
 
+	/** Where every warehouse can deliver each option (see GSUP_Sources). */
+	public static function reach_table() {
+		global $wpdb;
+		return $wpdb->prefix . 'gsup_reach';
+	}
+
 	public static function activate() {
 		self::create_table();
 		if ( ! get_option( 'gsup_secret' ) ) {
@@ -55,6 +61,27 @@ class GSUP_Install {
   PRIMARY KEY  (id),
   KEY ae_product_id (ae_product_id),
   KEY status (status)
+) {$collate};"
+		);
+		$reach = self::reach_table();
+		dbDelta(
+			"CREATE TABLE {$reach} (
+  product_id bigint(20) unsigned NOT NULL,
+  item_id bigint(20) unsigned NOT NULL,
+  country char(2) NOT NULL,
+  warehouse varchar(8) NOT NULL,
+  deliverable tinyint(1) NOT NULL DEFAULT 0,
+  in_stock tinyint(1) NOT NULL DEFAULT 0,
+  stock int(11) NULL DEFAULT NULL,
+  cost decimal(12,2) NULL DEFAULT NULL,
+  ship_cost decimal(12,2) NULL DEFAULT NULL,
+  method varchar(64) NOT NULL DEFAULT '',
+  days_min smallint(5) unsigned NOT NULL DEFAULT 0,
+  days_max smallint(5) unsigned NOT NULL DEFAULT 0,
+  checked_at datetime NOT NULL,
+  PRIMARY KEY  (item_id,country,warehouse),
+  KEY shop (country,warehouse,deliverable,in_stock,product_id),
+  KEY product_id (product_id)
 ) {$collate};"
 		);
 	}

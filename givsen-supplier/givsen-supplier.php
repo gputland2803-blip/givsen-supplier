@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Givsen Supplier
  * Description:       Links WooCommerce products to AliExpress by ID (product ID on the product, SKU ID on each variation), places paid orders on AliExpress automatically and brings tracking back, and shows your margin on every product and order. Replaces DSers.
- * Version:           0.13.0
+ * Version:           0.14.0
  * Author:            Givsen
  * Requires at least: 6.4
  * Requires PHP:      7.4
@@ -12,8 +12,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'GSUP_VERSION', '0.13.0' );
-define( 'GSUP_DB_VERSION', '5' ); // 5: import list keeps the product's words from the page.
+define( 'GSUP_VERSION', '0.14.0' );
+define( 'GSUP_DB_VERSION', '6' ); // 6: reach table (where each warehouse delivers).
 define( 'GSUP_FILE', __FILE__ );
 define( 'GSUP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GSUP_URL', plugin_dir_url( __FILE__ ) );
@@ -69,6 +69,8 @@ function gsup_boot() {
 	GSUP_Parcels::init();
 	require_once GSUP_DIR . 'includes/class-gsup-remap.php';
 	require_once GSUP_DIR . 'includes/class-gsup-eta.php';
+	require_once GSUP_DIR . 'includes/class-gsup-sources.php';
+	GSUP_Sources::init();
 	GSUP_Remap::init();
 	GSUP_Eta::init();
 	GSUP_Sync::init();
@@ -113,6 +115,7 @@ function gsup_ensure_schedules() {
 		wp_schedule_event( time() + HOUR_IN_SECONDS, 'twicedaily', 'gsup_keep_alive' );
 	}
 	GSUP_Sync::schedule();
+	GSUP_Sources::schedule();
 	GSUP_Orders::schedule();
 	set_transient( 'gsup_schedules_ok', GSUP_VERSION, 12 * HOUR_IN_SECONDS );
 }

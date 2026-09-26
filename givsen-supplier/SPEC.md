@@ -1,6 +1,6 @@
 # Givsen Supplier — Specification
 
-Version: 0.13.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
+Version: 0.14.0 · Replaces DSers for givsen.com (WooCommerce, Stripe, CBR country segmentation).
 
 ## Core rule
 The supplier link lives on the WooCommerce product, by ID. Titles, descriptions, attribute names and option names are never used to find a supplier item, so renaming anything can't break a link.
@@ -21,6 +21,8 @@ The supplier link lives on the WooCommerce product, by ID. Titles, descriptions,
 | Product | `_gsup_drafted_by_sync` | When the sync drafted it (cleared when reported back on sale) |
 | Product | `_gsup_synced_at` | Last successful sync |
 | Variation, or simple product | `_gsup_option_gone` | Set when the option is no longer on the listing |
+| Variation, or simple product | `_gsup_sources` | Every warehouse that has the option: {warehouse: {sku, option, cost, stock, seen_at}}, main warehouse first; unstated ships-from = `CN`. Absent = main warehouse only |
+| Product | `_gsup_reach_at` | When its sources and reach were last refreshed |
 | Order line item | `_gsup_ae_order_no` | AliExpress order number |
 | Order line item | `_gsup_tracking_no` | Tracking number(s), comma-separated |
 | Order line item | `_gsup_carrier` | Carrier reported by AliExpress |
@@ -66,8 +68,9 @@ Gateway `https://api-sg.aliexpress.com` (`/sync` for methods, `/rest/...` for au
 - Access token renews when less than a quarter of its life (max 3 days) remains; cron `gsup_keep_alive` (twice daily) renews if under 18 hours remain.
 
 ## Add to store
-Screen: Import list → "Add to store as new product" (or Settings → Test → same button) → `tab=create&ae=<id>&ship=<code|none>`.
-- Options grouped by ships-from; one warehouse per product. Ships-from never becomes a customer-facing attribute.
+Screen: Import list → "Add to store as new product" (or Settings → Test → same button) → `tab=create&ae=<id>&ship=<code|none>&mode=<all|one>`.
+- `mode=all` (default): `GSUP_Creator::all_warehouses()` fetches the listing for every selling country + AU/US in parallel, unions it (`GSUP_Sources::union()`), groups options by `GSUP_Sources::key_of()` (values without Ships From) and quotes delivery once per warehouse to its home country. Main warehouse per option = `primary_of()`: first in preference order (AU, store country, US, others A–Z, CN) whose stock isn't 0. Checkbox value = the main SKU. `create( $listing, '*', … )`: each option's main SKU/ships-from/cost/fee as today, `_gsup_sources` = every warehouse's SKU, price from the main warehouse's cost + fee; no CBR; `gsup_sources_refresh` queued. Import rows whose SKU is another warehouse of an added option are linked to it.
+- `mode=one`: options grouped by ships-from; one warehouse per product (as before). Ships-from never becomes a customer-facing attribute.
 - Several options → variable product with local attributes in AliExpress order; one option (or no attributes) → simple product. Duplicate option combinations are skipped.
 - Categories: ticked from the import row (`row=` in the URL) when it has some, else the user's last-used (`gsup_last_categories` user meta, saved on each create). None ticked → WooCommerce default category.
 - Created as draft. Title editable; description = AliExpress `detail` with script/style/iframe/noscript blocks removed, then `wp_kses_post`. Up to 6 photos (thumbnail suffixes removed), option photos (up to 12 unique) on variations.
@@ -77,6 +80,7 @@ Screen: Import list → "Add to store as new product" (or Settings → Test → 
 - Import rows for the same AliExpress product: rows whose option was added → Linked to that variation/product; rows without an option → Linked to the product; other rows untouched.
 
 ## Daily sync
+- Sources: listings fetched for the main warehouse's country plus each source warehouse's home country (`gsup_quote_country`). Every source's cost/stock/seen_at updated (`_gsup_sources` only written when it exists and changed). `gsup_stock_rule` = `primary` (default): stock/"option gone" from the main SKU as below. `any`: main SKU missing → `promote()` the best other source seen this run (`GSUP_Sources::best()`: reaching a selling country per the reach table and in stock, else any) — SKU/option/ships-from switched, delivery fee/method/days from its reach row for the store country, report `promoted` (emailed); "option gone" only when no source was seen. Stock = `GSUP_Sources::any_stock()` over reachable sources (in stock if any; qty = max, never summed; unknown amount → unmanaged).
 Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at 03:00 store time while `gsup_sync_enabled` = yes; batches of 15 via `gsup_sync_batch`. Run state in `gsup_sync_run`, last report in `gsup_sync_last`. One AliExpress call per (product ID, delivery country) per batch; delivery country AU or US from the product's ships-from, else the store's base country.
 - Delivery fee: one quote per (product, country) per batch; failed quote keeps the stored fee. Counted as "delivery fee changes". A product's first delivery fee (e.g. after upgrading) isn't treated as a cost rise.
 - Cost + delivery went up and the product's margin is now below the minimum → listed as low margin (email + report).
@@ -128,10 +132,16 @@ Action Scheduler (group `givsen-supplier`): recurring `gsup_sync_start` daily at
 - Quantity shown is net of refunds.
 
 ## Uninstall
-Drops the import list table and the plugin's options, and unschedules its background jobs (incl. `gsup_enrich_rows`). Keeps product links and order numbers/tracking, so reinstalling picks up where you left off.
+Drops the import list and reach tables and the plugin's options, and unschedules its background jobs (incl. `gsup_enrich_rows`). Keeps product links and order numbers/tracking, so reinstalling picks up where you left off.
 
 ## Not in this version
 Per-option delivery quotes (one quote per product and warehouse is used).
+
+## Sources and reach (`GSUP_Sources`)
+- Settings → Selling worldwide: `gsup_sell_countries` (default AU NZ US CA GB IE DE FR NL SE; none → store country), `gsup_sell_others` (default yes; `live( $product_id, $country )` = one listing call + a quote per warehouse, cached 6 h in a transient, never in the table), `gsup_stock_rule` (primary/any). Shows `estimate()`: products × countries × (1 + average warehouses per product, from the reach table) a week; daily ≈ products × min(2, warehouses).
+- Table `{prefix}gsup_reach` (DB version 6): product_id, item_id, country, warehouse, deliverable, in_stock, stock, cost, ship_cost, method, days_min, days_max, checked_at. PK (item_id, country, warehouse); KEY shop (country, warehouse, deliverable, in_stock, product_id); KEY product_id.
+- `refresh( ids )`: per product, `get_products()` for `fetch_countries()` (selling countries + each warehouse's home country + store country); union; `match()` (per warehouse: the main SKU's `key_of()` exact, else `GSUP_Remap::auto_match()` ≥ 0.8 among the rest; a lone item and lone SKU always match); one `freights()` quote per (product, warehouse, selling country) for an option of that warehouse present in that country's reply. Row deliverable = option in that country's reply AND a quote; in_stock = deliverable and stock ≠ 0. Countries with no reply (or a connection-type quote error) keep their old rows and are reported as skipped. A non-main source missing from every reply (all countries answered) is dropped. Rows for the checked countries replaced (DELETE by product+country, multi-row REPLACE).
+- Weekly `gsup_reach_start` (Monday 04:00 store time, while the daily sync is on) → `gsup_reach_batch` (3 products per step, filter `gsup_reach_batch_size`); run state `gsup_reach_run`, last `gsup_reach_last`. Supplier tab "Refresh sources" (`admin_post_gsup_sources_refresh`, runs now); bulk action `gsup_sources` → `gsup_sources_refresh` jobs. Change supplier to another listing → sources removed, reach rows forgotten, refresh queued.
 
 ## Same-seller trial (`gsup_combine_seller`, default no)
 `GSUP_Orders::place()` checks every line first (`prepare_line()` → plan {item, product_id, qty, sku_attr, freight, cost, store_id, ship_from}), then `group()`: key `store_id|ship_from` when on and store_id known, else one per line. `submit()` sends a group in one `place_order()` (`out_order_id` = number-firstItemID-xN). Success → `match_orders()`: `get_orders()` on the returned numbers; a line whose product ID is in exactly one order gets that number, else all numbers. Refused (not a network/unknown error) → logged, then each line submitted alone (`number-itemID`). Unknown → every line flagged `gsup_unknown`, `_gsup_placing` kept, not retried. Each group of 2+ is logged in `gsup_combine_log` (last 20: at, order, store, lines {name, qty, product, method, fee, cost, orders}, result one/split/error/unknown, orders {number: amount, currency, products}) and shown under Settings → Ordering → Combined orders so far; order note added. Item cost stays its own quote; when tracking later reads an order's amount, `cost_shares()` splits a number shared by several lines by their current costs. Listing `store_id` from `ae_store_info`; order `products`/`store_id` from `child_order_list` / `store_info`.
@@ -189,7 +199,7 @@ Signed requests: `X-Gsup-Sig-Version: 2` → HMAC of `ts.METHOD./route.body`; v1
 - `gsup_prime_links()` answers link lookups for a whole screen in two queries.
 
 ## Settings screen
-`tab=settings&section=<overview|aliexpress|ordering|pricing|sync|countries|extension>` (default overview; `gsup_settings_url()`). Side menu with a status badge per section (tab row under 960px). Overview: "Needs your attention" (AliExpress not connected, import list waiting, Processing orders with auto state failed/partial, low-margin products, last sync stopped) and one card per section. Every save/connect/test action returns to its own section. Save forms (`.gsup-save-form`) warn on leaving with unsaved changes.
+`tab=settings&section=<overview|aliexpress|ordering|pricing|sync|worldwide|ai|countries|extension>` (default overview; `gsup_settings_url()`). Side menu with a status badge per section (tab row under 960px). Overview: "Needs your attention" (AliExpress not connected, import list waiting, Processing orders with auto state failed/partial, low-margin products, last sync stopped) and one card per section. Every save/connect/test action returns to its own section. Save forms (`.gsup-save-form`) warn on leaving with unsaved changes.
 
 ## Regression checklist
 Run after any change, on a staging copy with MySQL.
@@ -250,3 +260,8 @@ Run after any change, on a staging copy with MySQL.
 55. A store page and a product page's "More to love" section → checkboxes on the products (not on the product you're viewing). An AliExpress page without products (orders, cart) → no checkboxes, no bar.
 56. Same-seller trial on → order with 2 items from one AU seller → placed in one request: order note "Combined order trial: 2 items … → one AliExpress order (…)" or "… 2 AliExpress orders"; each item shows its own order number; Settings → Ordering → Combined orders so far lists it with quoted vs charged. Compare with the AliExpress order page (one parcel? one delivery fee?).
 57. Trial on, same order with one item out of stock on AliExpress → the out-of-stock item is refused before sending; the other is placed alone. Trial off → one AliExpress order per item as before. Profit on a shared order after tracking arrives = AliExpress's total, split between the items (not doubled).
+58. Settings → Selling worldwide → defaults show the 10 countries, "Also sell to other countries" ticked, stock "From each option's main warehouse"; the calls estimate matches linked products × 10 × (1 + warehouses). Remove a country, save → lands back on the section, list kept.
+59. Existing AU product whose listing also ships from China → Supplier tab → Refresh sources → message lists Australia and China; each option shows two chips (Australia bold), hover shows delivery days per country. Shop page for that product unchanged (price, stock, delivery estimate).
+60. Products list → select 5 linked products → Bulk actions → Refresh sources → notice; after the background jobs run, their Supplier tabs show warehouses. Settings → Selling worldwide → Check all products now → progress, then "Last check" with the number of results.
+61. Import list → Add to store (default "All warehouses in one product") on a listing with AU and CN options → one row per option with a chip per warehouse; an option sold out in AU has China as its main warehouse. Create → one draft product; each variation's Supplier fields show its main warehouse; Supplier tab lists all warehouses; no "Shown to:" restriction. "One warehouse only" still works as before.
+62. Stock rule "main warehouse": an option sold out in AU but in stock in CN stays out of stock after the daily sync. Switch to "any warehouse" → next sync shows it in stock; remove the AU option on AliExpress (or change its SKU on a test product) → sync email "now supplied from another warehouse", option stays buyable, its ships-from is China.

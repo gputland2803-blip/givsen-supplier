@@ -2,7 +2,8 @@
 /**
  * "Add to store": turns an AliExpress listing into a draft WooCommerce product.
  *
- * One product per warehouse (ships-from), matching the store's country segmentation.
+ * Either all warehouses in one product (default: each option keeps every warehouse that has it as a source, the
+ * best one as its main warehouse) or one product per warehouse (ships-from).
  * Ships-from is kept in the supplier fields, not as a customer-facing option.
  * Supplier IDs, cost and stock are set on the product/variations; the product is left
  * as a draft so prices and wording can be checked before publishing.
@@ -109,11 +110,84 @@ class GSUP_Creator {
 		return implode( ' · ', $parts );
 	}
 
+	/* ------------------------------------------------------ all warehouses */
+
+	/**
+	 * A listing as seen from every selling country, its options grouped by their values (Ships From left out), and
+	 * one delivery quote per warehouse (to that warehouse's home country).
+	 *
+	 * @return array|WP_Error {listing, groups: {key: {warehouse: SKU}}, freights: {warehouse: freight|WP_Error}}
+	 */
+	public static function all_warehouses( $ae_product_id ) {
+		$countries = GSUP_Sources::fetch_countries( array( 'AU', 'US' ) );
+		$pairs     = array();
+		foreach ( $countries as $c ) {
+			$pairs[] = array( $ae_product_id, $c );
+		}
+		$got      = GSUP_AliExpress::get_products( $pairs );
+		$listings = array();
+		$error    = null;
+		foreach ( $countries as $c ) {
+			$l = $got[ gsup_parse_product_id( $ae_product_id ) . '|' . $c ] ?? null;
+			if ( is_array( $l ) ) {
+				$listings[ $c ] = $l;
+			} elseif ( is_wp_error( $l ) && ! $error ) {
+				$error = $l;
+			}
+		}
+		$listing = GSUP_Sources::union( $listings );
+		if ( ! $listing ) {
+			return $error ? $error : new WP_Error( 'gsup_ae_missing', 'No reply from AliExpress.' );
+		}
+		$groups = array();
+		$specs  = array();
+		foreach ( $listing['skus'] as $sku ) {
+			$wh = GSUP_Sources::wh( $sku['ship_from'] );
+			if ( ! isset( $groups[ GSUP_Sources::key_of( $sku ) ][ $wh ] ) ) {
+				$groups[ GSUP_Sources::key_of( $sku ) ][ $wh ] = $sku;
+			}
+			if ( ! isset( $specs[ $wh ] ) ) {
+				$specs[ $wh ] = array( $listing['product_id'], (string) $sku['sku_id'], gsup_quote_country( $sku['ship_from'] ) );
+			}
+		}
+		foreach ( $groups as $key => $by_wh ) {
+			$sorted = array();
+			foreach ( GSUP_Sources::sort_warehouses( array_keys( $by_wh ) ) as $wh ) {
+				$sorted[ $wh ] = $by_wh[ $wh ];
+			}
+			$groups[ $key ] = $sorted;
+		}
+		$freights = array();
+		foreach ( $specs ? GSUP_AliExpress::freights( $specs ) : array() as $wh => $options ) {
+			$freights[ $wh ] = is_wp_error( $options ) ? $options : GSUP_AliExpress::choose_freight( $options );
+		}
+		return array(
+			'listing'  => $listing,
+			'groups'   => $groups,
+			'freights' => $freights,
+		);
+	}
+
+	/**
+	 * An option's main warehouse: the preferred one that has it in stock, else the preferred one.
+	 *
+	 * @param array $by_wh warehouse => SKU (already in preference order)
+	 */
+	public static function primary_of( array $by_wh ) {
+		foreach ( $by_wh as $wh => $sku ) {
+			if ( 0 !== $sku['stock'] ) {
+				return $wh;
+			}
+		}
+		return (string) array_key_first( $by_wh );
+	}
+
 	/* ------------------------------------------------------------- create */
 
 	/**
 	 * @param array    $product  Normalised listing from GSUP_AliExpress::get_product().
-	 * @param string   $ship     Warehouse code chosen ('' = not stated).
+	 * @param string   $ship     Warehouse code chosen ('' = not stated), or '*' for all warehouses in one product
+	 *                           ($sku_ids are then each option's main SKU; $opts['sources'] and $opts['freights'] set).
 	 * @param string[] $sku_ids  Options to include.
 	 * @param string   $title    Product title to use.
 	 * @param int[]    $category_ids Store categories (empty = WooCommerce's default category).
@@ -147,8 +221,9 @@ class GSUP_Creator {
 			$opts
 		);
 		$chosen = array();
+		$all = '*' === $ship;
 		foreach ( $product['skus'] as $sku ) {
-			if ( $sku['ship_from'] === $ship && in_array( (string) $sku['sku_id'], $sku_ids, true ) ) {
+			if ( ( $all || $sku['ship_from'] === $ship ) && in_array( (string) $sku['sku_id'], $sku_ids, true ) ) {
 				$chosen[] = $sku;
 			}
 		}
@@ -182,8 +257,33 @@ class GSUP_Creator {
 		$is_variable = count( $chosen ) > 1 && $names;
 		list( $name_of, $value_of ) = self::renamer( $names, $chosen, $opts );
 
-		$freight = self::quote( $product['product_id'], $chosen[0]['sku_id'], $ship );
-		$freight = is_wp_error( $freight ) ? null : $freight;
+		$freights = isset( $opts['freights'] ) && is_array( $opts['freights'] ) ? $opts['freights'] : array();
+		if ( $all ) {
+			$freight = null;
+		} else {
+			$freight = self::quote( $product['product_id'], $chosen[0]['sku_id'], $ship );
+			$freight = is_wp_error( $freight ) ? null : $freight;
+		}
+		// Delivery for an option: its own warehouse's quote with all warehouses, else the product's one quote.
+		$freight_for = function ( $sku ) use ( $all, $freights, $freight ) {
+			if ( ! $all ) {
+				return $freight;
+			}
+			$f = $freights[ GSUP_Sources::wh( $sku['ship_from'] ) ] ?? null;
+			return is_array( $f ) ? $f : null;
+		};
+		// Every warehouse's SKU for an option, saved as its sources.
+		$save_sources = function ( $id, $sku ) use ( $all, $opts ) {
+			if ( ! $all ) {
+				return;
+			}
+			$group   = $opts['sources'][ GSUP_Sources::key_of( $sku ) ] ?? array( GSUP_Sources::wh( $sku['ship_from'] ) => $sku );
+			$entries = array();
+			foreach ( $group as $wh => $s ) {
+				$entries[ $wh ] = GSUP_Sources::entry( $s );
+			}
+			GSUP_Sources::save( $id, $entries );
+		};
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- image downloads can take a while.
@@ -266,7 +366,7 @@ class GSUP_Creator {
 		} else {
 			$attributes = array();
 			$sku        = $chosen[0];
-			self::apply_price_and_stock( $wc, $sku, $freight );
+			self::apply_price_and_stock( $wc, $sku, $freight_for( $sku ) );
 		}
 		// Item specifics → "Additional information" tab (not used for variations).
 		if ( $opts['specs'] ) {
@@ -298,14 +398,17 @@ class GSUP_Creator {
 			$wc->update_meta_data( GSUP_META_SKU, (string) $sku['sku_id'] );
 			$wc->update_meta_data( GSUP_META_OPTION, mb_substr( $sku['option'], 0, 255 ) );
 			$wc->update_meta_data( GSUP_META_COST, (string) $sku['price'] );
-			self::set_freight_meta( $wc, $freight );
-			if ( '' !== $ship ) {
-				$wc->update_meta_data( GSUP_META_SHIP, $ship );
+			self::set_freight_meta( $wc, $freight_for( $sku ) );
+			if ( '' !== (string) $sku['ship_from'] ) {
+				$wc->update_meta_data( GSUP_META_SHIP, (string) $sku['ship_from'] );
 			}
 		}
 		$product_id = $wc->save();
 		if ( ! $product_id ) {
 			return new WP_Error( 'gsup_save', 'WooCommerce couldn’t save the new product.' );
+		}
+		if ( ! $is_variable ) {
+			$save_sources( $product_id, $chosen[0] );
 		}
 
 		// Images: main + gallery.
@@ -359,7 +462,7 @@ class GSUP_Creator {
 				}
 				$v->set_parent_id( $product_id );
 				$v->set_attributes( $attrs );
-				self::apply_price_and_stock( $v, $sku, $freight );
+				self::apply_price_and_stock( $v, $sku, $freight_for( $sku ) );
 				if ( '' !== $img && $opts['option_photos'] ) {
 					if ( ! isset( $image_cache[ $img ] ) && count( $image_cache ) < self::MAX_OPTION_IMAGES ) {
 						$image_cache[ $img ] = self::sideload( $img, $product_id, $title . ' — ' . self::option_text( $sku ) );
@@ -371,11 +474,12 @@ class GSUP_Creator {
 				$v->update_meta_data( GSUP_META_SKU, (string) $sku['sku_id'] );
 				$v->update_meta_data( GSUP_META_OPTION, mb_substr( $sku['option'], 0, 255 ) );
 				$v->update_meta_data( GSUP_META_COST, (string) $sku['price'] );
-				self::set_freight_meta( $v, $freight );
-				if ( '' !== $ship ) {
-					$v->update_meta_data( GSUP_META_SHIP, $ship );
+				self::set_freight_meta( $v, $freight_for( $sku ) );
+				if ( '' !== (string) $sku['ship_from'] ) {
+					$v->update_meta_data( GSUP_META_SHIP, (string) $sku['ship_from'] );
 				}
 				$v->save();
+				$save_sources( $v->get_id(), $sku );
 			}
 			WC_Product_Variable::sync( $product_id );
 		}
@@ -393,7 +497,12 @@ class GSUP_Creator {
 		}
 
 		self::mark_import_rows( $product['product_id'], $product_id );
-		if ( class_exists( 'GSUP_CBR' ) ) {
+		if ( $all ) {
+			// Sold wherever a warehouse delivers: no country restriction. Reach is checked in the background.
+			if ( function_exists( 'as_enqueue_async_action' ) ) {
+				GSUP_Sources::queue( array( $product_id ) );
+			}
+		} elseif ( class_exists( 'GSUP_CBR' ) ) {
 			GSUP_CBR::apply( $product_id );
 		}
 		if ( class_exists( 'GSUP_Profit' ) ) {
@@ -556,6 +665,17 @@ class GSUP_Creator {
 					if ( (int) $id === (int) $product_id || (int) wp_get_post_parent_id( $id ) === (int) $product_id ) {
 						$wc_id = $id;
 						break;
+					}
+				}
+				if ( ! $wc_id ) {
+					// Another warehouse of an option that was added (all warehouses in one product).
+					$made = wc_get_product( $product_id );
+					foreach ( $made ? GSUP_Sources::items( $made ) : array() as $item ) {
+						foreach ( GSUP_Sources::get( $item->get_id() ) as $src ) {
+							if ( (string) $src['sku'] === (string) $row['ae_sku_id'] ) {
+								$wc_id = $item->get_id();
+							}
+						}
 					}
 				}
 				if ( ! $wc_id ) {

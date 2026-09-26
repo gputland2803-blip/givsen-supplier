@@ -3,7 +3,9 @@
  * Daily sync with AliExpress, run in small batches through WooCommerce's job queue (Action Scheduler).
  *
  * Updates: stock, cost (_gsup_cost), delivery fee (_gsup_ship_cost), and — only if switched on — the regular
- * price from the pricing rule. Flags products whose margin a cost rise has pushed below the minimum.
+ * price from the pricing rule. Every source (warehouse) of an option gets its cost and stock updated too; which
+ * stock the shop shows follows Settings → Selling worldwide ("primary warehouse" by default, or "any warehouse
+ * that reaches a selling country", where a gone primary is replaced by the best other warehouse). Flags products whose margin a cost rise has pushed below the minimum.
  * Never touches: titles, descriptions, images, categories, sale prices.
  *
  * Removed on AliExpress:
@@ -165,6 +167,7 @@ class GSUP_Sync {
 			'options_gone'  => array(), // variation/simple IDs newly out because the option is gone
 			'back'          => array(), // product IDs back on AliExpress after being drafted by sync
 			'missing'       => array(), // product IDs missing once (will be drafted if missing again)
+			'promoted'      => array(), // item IDs whose primary warehouse was replaced by another source
 			'errors'        => $errors,
 		);
 	}
@@ -219,8 +222,10 @@ class GSUP_Sync {
 			if ( $product->is_type( 'variable' ) && $product->get_children() ) {
 				update_meta_cache( 'post', $product->get_children() );
 			}
-			$ships[ $id ]               = self::ship_to_for( $product );
-			$pairs[ $ae_pid . '|' . $ships[ $id ] ] = array( $ae_pid, $ships[ $id ] );
+			$ships[ $id ] = self::ship_to_for( $product );
+			foreach ( self::source_countries( $product, $ships[ $id ] ) as $c ) {
+				$pairs[ $ae_pid . '|' . $c ] = array( $ae_pid, $c );
+			}
 		}
 		$cache = $pairs ? GSUP_AliExpress::get_products( array_values( $pairs ) ) : array();
 
@@ -267,6 +272,125 @@ class GSUP_Sync {
 			}
 		}
 		return $ae['skus'] ? (string) $ae['skus'][0]['sku_id'] : '';
+	}
+
+	/**
+	 * Countries to fetch a product's listing for so every source is seen: the primary's, plus each other warehouse's
+	 * home country (Australia → AU, United States → US, the rest → your store's country).
+	 */
+	private static function source_countries( WC_Product $product, $primary_country ) {
+		$out = array( $primary_country => true );
+		foreach ( $product->is_type( 'variable' ) ? $product->get_children() : array( $product->get_id() ) as $id ) {
+			foreach ( array_keys( GSUP_Sources::get( $id ) ) as $wh ) {
+				$out[ gsup_quote_country( 'CN' === $wh ? '' : $wh ) ] = true;
+			}
+		}
+		return array_keys( $out );
+	}
+
+	/**
+	 * Update an item's sources from the listings fetched for their home countries. Nothing is saved for items that
+	 * have only their primary and no sources meta yet (they read the same either way).
+	 *
+	 * @param array|null $primary_sku The primary's SKU on the main listing (null = not there).
+	 * @return array{0:array,1:string[]} [sources, warehouses seen on AliExpress this run]
+	 */
+	private static function update_sources( $item_id, $ae_pid, array &$cache, $primary_sku ) {
+		$sources = GSUP_Sources::get( $item_id );
+		$before  = $sources;
+		$seen    = array();
+		$primary = GSUP_Sources::wh( get_post_meta( $item_id, GSUP_META_SHIP, true ) );
+		foreach ( $sources as $wh => $src ) {
+			$sku = null;
+			if ( $wh === $primary && $primary_sku ) {
+				$sku = $primary_sku;
+			} else {
+				$country = gsup_quote_country( 'CN' === $wh ? '' : $wh );
+				$key     = $ae_pid . '|' . $country;
+				if ( ! isset( $cache[ $key ] ) ) {
+					$cache[ $key ] = GSUP_AliExpress::get_product( $ae_pid, $country );
+				}
+				$sku = is_array( $cache[ $key ] ) ? GSUP_AliExpress::find_sku( $cache[ $key ], $src['sku'] ) : null;
+			}
+			if ( $sku ) {
+				$seen[]                    = $wh;
+				$sources[ $wh ]['cost']    = (string) $sku['price'];
+				$sources[ $wh ]['stock']   = null === $sku['stock'] ? null : (int) $sku['stock'];
+				$sources[ $wh ]['seen_at'] = time();
+			}
+		}
+		$changed = false;
+		foreach ( $sources as $wh => $src ) {
+			if ( ! isset( $before[ $wh ] ) || $before[ $wh ]['cost'] !== $src['cost'] || $before[ $wh ]['stock'] !== $src['stock'] ) {
+				$changed = true;
+			}
+		}
+		if ( $changed && is_array( get_post_meta( $item_id, GSUP_Sources::META, true ) ) ) {
+			GSUP_Sources::save( $item_id, $sources );
+		}
+		return array( $sources, $seen );
+	}
+
+	/**
+	 * "Any warehouse" rule: the primary is gone, so make the best other source the primary — in stock and reaching a
+	 * selling country if possible, else any source still on AliExpress (it then shows out of stock).
+	 *
+	 * @return array|null The new primary's SKU from the listing.
+	 */
+	private static function promote( WC_Product $item, $ae_pid, array $sources, array $seen, array &$cache, array &$report ) {
+		$id      = $item->get_id();
+		$primary = GSUP_Sources::wh( get_post_meta( $id, GSUP_META_SHIP, true ) );
+		$live    = array_intersect_key( $sources, array_flip( $seen ) );
+		unset( $live[ $primary ] );
+		if ( ! $live ) {
+			return null;
+		}
+		$wh = GSUP_Sources::best( $live, GSUP_Sources::reachable( $id ) );
+		if ( null === $wh ) {
+			$wh = GSUP_Sources::sort_warehouses( array_keys( $live ) )[0];
+		}
+		$key = $ae_pid . '|' . gsup_quote_country( 'CN' === $wh ? '' : $wh );
+		$sku = isset( $cache[ $key ] ) && is_array( $cache[ $key ] ) ? GSUP_AliExpress::find_sku( $cache[ $key ], $live[ $wh ]['sku'] ) : null;
+		if ( ! $sku ) {
+			return null;
+		}
+		$item->update_meta_data( GSUP_META_SKU, (string) $sku['sku_id'] );
+		$item->update_meta_data( GSUP_META_OPTION, mb_substr( $sku['option'], 0, 255 ) );
+		if ( '' !== (string) $sku['ship_from'] ) {
+			$item->update_meta_data( GSUP_META_SHIP, (string) $sku['ship_from'] );
+		} else {
+			$item->delete_meta_data( GSUP_META_SHIP );
+		}
+		// Delivery from that warehouse to your store's country, as last measured by the weekly reach refresh.
+		foreach ( GSUP_Sources::reach( 0, $id ) as $r ) {
+			if ( $r['warehouse'] === $wh && $r['country'] === GSUP_AliExpress::default_ship_to() && $r['deliverable'] ) {
+				$item->update_meta_data( GSUP_META_SHIP_COST, wc_format_decimal( $r['ship_cost'], 2 ) );
+				$item->update_meta_data( GSUP_META_SHIP_METHOD, (string) $r['method'] );
+				if ( $r['days_max'] ) {
+					$item->update_meta_data( GSUP_META_SHIP_DAYS, (int) $r['days_min'] . '-' . (int) $r['days_max'] );
+				}
+			}
+		}
+		$item->save();
+		$report['promoted'][] = $id;
+		return $sku;
+	}
+
+	/** "Any warehouse" rule: stock from the best reachable source (never added up across warehouses). */
+	private static function apply_any_stock( WC_Product $item, array $sources ) {
+		$st = GSUP_Sources::any_stock( $sources, GSUP_Sources::reachable( $item->get_id() ) );
+		if ( ! $st['in_stock'] ) {
+			$item->set_manage_stock( true );
+			$item->set_stock_quantity( 0 );
+			$item->set_stock_status( 'outofstock' );
+		} elseif ( null === $st['qty'] ) {
+			$item->set_manage_stock( false );
+			$item->set_stock_status( 'instock' );
+		} else {
+			$item->set_manage_stock( true );
+			$item->set_stock_quantity( self::store_qty( $st['qty'] ) );
+		}
+		$item->save();
 	}
 
 	/** Which delivery country to ask AliExpress about, from where the product ships. */
@@ -358,12 +482,20 @@ class GSUP_Sync {
 			} else {
 				$sku = GSUP_AliExpress::find_sku( $ae, $sku_id );
 			}
+			list( $sources, $seen ) = self::update_sources( $target_id, $ae_pid, $cache, $sku );
+			$any                    = 'any' === GSUP_Sources::stock_rule();
+			if ( ! $sku && $any ) {
+				$sku = self::promote( $item, $ae_pid, $sources, $seen, $cache, $report ); // Gone only when no source is left.
+			}
 			if ( ! $sku ) {
 				self::mark_option_gone( $item, $report );
 				++$gone;
 				continue;
 			}
 			$rise                 = max( $rise, self::apply( $item, $sku, $report, $freight ) );
+			if ( $any ) {
+				self::apply_any_stock( $item, $sources ); // This run's stock for every source.
+			}
 			$costs[ $target_id ] = (float) $sku['price'] + ( $freight ? (float) $freight['fee'] : (float) get_post_meta( $target_id, GSUP_META_SHIP_COST, true ) );
 		}
 		$rose = $rise > 0;
@@ -616,7 +748,7 @@ class GSUP_Sync {
 
 	private static function email( array $last ) {
 		$r = $last['report'];
-		if ( ! $r['removed'] && ! $r['options_gone'] && ! $r['back'] && ! $r['errors'] && empty( $r['low_margin'] ) && empty( $r['switched'] ) && empty( $r['backup_failed'] ) ) {
+		if ( ! $r['removed'] && ! $r['options_gone'] && ! $r['back'] && ! $r['errors'] && empty( $r['low_margin'] ) && empty( $r['switched'] ) && empty( $r['backup_failed'] ) && empty( $r['promoted'] ) ) {
 			return;
 		}
 		$lines   = array();
@@ -633,6 +765,13 @@ class GSUP_Sync {
 			$lines[] = 'Options no longer on AliExpress — set to out of stock:';
 			foreach ( $r['options_gone'] as $id ) {
 				$lines[] = '  • ' . gsup_product_label( $id ) . ' — change supplier: ' . gsup_remap_url( wp_get_post_parent_id( $id ) ? wp_get_post_parent_id( $id ) : $id );
+			}
+			$lines[] = '';
+		}
+		if ( ! empty( $r['promoted'] ) ) {
+			$lines[] = 'Option no longer sold from its main warehouse — now supplied from another warehouse of the same listing:';
+			foreach ( $r['promoted'] as $id ) {
+				$lines[] = '  • ' . gsup_product_label( $id ) . ' → ' . gsup_ship_from_label( (string) get_post_meta( $id, GSUP_META_SHIP, true ) );
 			}
 			$lines[] = '';
 		}
