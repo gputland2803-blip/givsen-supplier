@@ -606,9 +606,15 @@ class GSUP_Sources {
 		);
 	}
 
+	/** Shop lists cached per country are rebuilt after any change. */
+	public static function bump() {
+		update_option( 'gsup_reach_ver', (int) get_option( 'gsup_reach_ver', 0 ) + 1, true );
+	}
+
 	/** Replace a product's reach rows for the countries just checked (others are kept). */
 	private static function write_rows( $pid, array $rows ) {
 		global $wpdb;
+		self::bump();
 		$table = GSUP_Install::reach_table();
 		$pairs = array();
 		foreach ( $rows as $r ) {
@@ -639,6 +645,7 @@ class GSUP_Sources {
 	public static function forget( $product_id ) {
 		global $wpdb;
 		$wpdb->delete( GSUP_Install::reach_table(), array( 'product_id' => (int) $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		self::bump();
 		delete_post_meta( $product_id, self::M_REACHED );
 	}
 

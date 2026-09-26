@@ -892,6 +892,25 @@ class GSUP_Admin_Page {
 		}
 		echo '</fieldset></td></tr>';
 		echo '</tbody></table>';
+
+		echo '<h3>In the shop</h3>';
+		echo '<table class="form-table gsup-settings"><tbody>';
+		echo '<tr><th scope="row">Delivery by country</th><td><label><input type="checkbox" name="shop" value="yes"' . checked( GSUP_Shop::enabled(), true, false ) . '> Show delivery by country in the shop</label><p class="description">Visitors get “Deliver to: [country] — change”; product lists hide what can’t reach them; product pages list the warehouses that can, with delivery days and dates; the cart and order line say where each item ships from; checkout re-checks if the delivery country changes. Run “Check all products now” below first so every product has its reach.</p></td></tr>';
+		$pricing = GSUP_Shop::pricing();
+		echo '<tr><th scope="row">Price by warehouse</th><td><fieldset>';
+		echo '<label style="display:block;margin-bottom:4px"><input type="radio" name="wh_pricing" value="same"' . checked( $pricing, 'same', false ) . '> Same price from every warehouse</label>';
+		echo '<label style="display:block"><input type="radio" name="wh_pricing" value="local"' . checked( $pricing, 'local', false ) . '> Local warehouses cost extra: + <input type="number" name="local_pct" min="0" max="100" step="0.1" class="small-text" value="' . esc_attr( (float) get_option( 'gsup_local_pct', 0 ) ) . '">% + <input type="number" name="local_fixed" min="0" step="0.01" class="small-text" value="' . esc_attr( (float) get_option( 'gsup_local_fixed', 0 ) ) . '"> ' . esc_html( function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : '' ) . '</label>';
+		echo '<p class="description">“Local” = the warehouse is in the delivery country (e.g. Australia for Australian delivery). Shown next to that choice and added in the cart.</p></fieldset></td></tr>';
+		echo '<tr><th scope="row">“Shipping from” filter</th><td><label><input type="checkbox" name="filter_auto" value="yes"' . checked( 'no' !== get_option( 'gsup_filter_auto', 'yes' ), true, false ) . '> Show it above the product grid (when there’s more than one warehouse)</label><p class="description">Or place it yourself: block “Shipping from (filter)” or shortcode <code>[gsup_shipping_from]</code>.</p></td></tr>';
+		$locations = function_exists( 'get_registered_nav_menus' ) ? get_registered_nav_menus() : array();
+		$menu      = (string) get_option( 'gsup_switcher_menu', '' );
+		echo '<tr><th scope="row"><label for="gsup_switcher_menu">“Deliver to” in a menu</label></th><td><select id="gsup_switcher_menu" name="switcher_menu"><option value="">Don’t add it</option>';
+		foreach ( $locations as $slug => $label ) {
+			echo '<option value="' . esc_attr( $slug ) . '"' . selected( $menu, $slug, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		echo '</select><p class="description">Or place it yourself: block “Deliver to (country)” or shortcode <code>[gsup_deliver_to]</code>.</p></td></tr>';
+		echo '<tr><th scope="row">Page caching</th><td><p class="description" style="margin-top:0">Pages depend on the visitor’s country, so each country gets its own cached copy: LiteSpeed Cache varies by the <code>gsup_country</code> cookie automatically; with Cloudflare or another cache that keys on the address, a tiny check on each page reloads it as <code>?gsup_c=GB</code> (its own cache entry, not indexed) when the cached copy is for a different country. Cart, checkout and My Account are never cached.</p></td></tr>';
+		echo '</tbody></table>';
 		echo '<p><button type="submit" class="button button-primary">Save selling worldwide</button></p></form>';
 
 		echo '<h3>AliExpress calls</h3>';
@@ -1663,6 +1682,13 @@ class GSUP_Admin_Page {
 		update_option( 'gsup_sell_countries', array_values( $keep ), false );
 		update_option( 'gsup_sell_others', isset( $_POST['others'] ) ? 'yes' : 'no', false );
 		update_option( 'gsup_stock_rule', isset( $_POST['stock_rule'] ) && 'any' === $_POST['stock_rule'] ? 'any' : 'primary', false );
+		update_option( 'gsup_worldwide_shop', isset( $_POST['shop'] ) ? 'yes' : 'no', true );
+		update_option( 'gsup_wh_pricing', isset( $_POST['wh_pricing'] ) && 'local' === $_POST['wh_pricing'] ? 'local' : 'same', true );
+		update_option( 'gsup_local_pct', isset( $_POST['local_pct'] ) ? max( 0, min( 100, (float) $_POST['local_pct'] ) ) : 0, true );
+		update_option( 'gsup_local_fixed', isset( $_POST['local_fixed'] ) ? max( 0, (float) $_POST['local_fixed'] ) : 0, true );
+		update_option( 'gsup_filter_auto', isset( $_POST['filter_auto'] ) ? 'yes' : 'no', true );
+		update_option( 'gsup_switcher_menu', isset( $_POST['switcher_menu'] ) ? sanitize_key( wp_unslash( $_POST['switcher_menu'] ) ) : '', true );
+		GSUP_Sources::bump(); // Lists cached per country follow the new countries.
 		// phpcs:enable
 		gsup_flash( $keep ? 'Saved. ' . count( $keep ) . ' selling countries — they’re checked at the next weekly run, or click “Check all products now”.' : 'Saved. No selling countries chosen: only your store’s country is checked.', $keep ? 'success' : 'warning' );
 		wp_safe_redirect( gsup_settings_url( 'worldwide' ) );

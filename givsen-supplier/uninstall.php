@@ -27,7 +27,8 @@ foreach (
 		'gsup_auto_order', 'gsup_auto_pay', 'gsup_combine_seller', 'gsup_combine_log', 'gsup_auto_loss_guard', 'gsup_complete_on_tracking', 'gsup_ship_pref',
 		'gsup_late_notrack_days', 'gsup_late_grace_days', 'gsup_delivered_email', 'gsup_complete_when',
 		'gsup_stock_min', 'gsup_stock_cap',
-		'gsup_sell_countries', 'gsup_sell_others', 'gsup_stock_rule', 'gsup_reach_run', 'gsup_reach_last',
+		'gsup_sell_countries', 'gsup_sell_others', 'gsup_stock_rule', 'gsup_reach_run', 'gsup_reach_last', 'gsup_reach_ver',
+		'gsup_worldwide_shop', 'gsup_wh_pricing', 'gsup_local_pct', 'gsup_local_fixed', 'gsup_filter_auto', 'gsup_switcher_menu',
 		'gsup_reviews_publish', 'gsup_fallback_phone', // gsup_reviews_publish: left by 0.8.0–0.8.1.
 		'gsup_eta_show', 'gsup_eta_processing', 'gsup_eta_format', 'gsup_eta_business',
 		'gsup_ae_log', 'gsup_ae_log_entries',

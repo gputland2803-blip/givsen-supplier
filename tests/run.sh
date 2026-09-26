@@ -11,7 +11,7 @@ while IFS= read -r f; do
 done < <(find givsen-supplier tests -name '*.php')
 
 echo "== Extension syntax"
-for f in givsen-supplier-extension/*.js; do node --check "$f" || status=1; done
+for f in givsen-supplier-extension/*.js givsen-supplier/assets/*.js; do node --check "$f" || status=1; done
 python3 -c "import json; json.load(open('givsen-supplier-extension/manifest.json'))" || status=1
 
 echo "== Tests"

@@ -84,10 +84,31 @@ class GSUP_Eta {
 		return (string) apply_filters( 'gsup_eta_text', $text, $range, $s );
 	}
 
+	/**
+	 * Days and dates for a delivery choice: "3–6 days (Tue 1 Oct – Fri 4 Oct)" — or days only with the days wording.
+	 * Your processing days are added.
+	 */
+	public static function span( array $range ) {
+		$s    = self::settings();
+		$min  = $range[0] + $s['processing'];
+		$max  = $range[1] + $s['processing'];
+		$days = ( $min === $max ? $max : $min . '–' . $max ) . ' ' . ( $s['business'] ? 'business ' : '' ) . 'days';
+		if ( 'days' === $s['format'] ) {
+			return $days;
+		}
+		$from  = self::add_days( $min, $s['business'] );
+		$to    = self::add_days( $max, $s['business'] );
+		$dates = $from == $to ? wp_date( 'D j M', $to->getTimestamp() ) : wp_date( 'D j M', $from->getTimestamp() ) . ' – ' . wp_date( 'D j M', $to->getTimestamp() ); // phpcs:ignore Universal.Operators.StrictComparisons -- comparing dates.
+		return (string) apply_filters( 'gsup_eta_span', $days . ' (' . $dates . ')', $range, $s );
+	}
+
 	public static function show() {
 		global $product;
 		if ( ! $product instanceof WC_Product || ! $product->is_in_stock() ) {
 			return;
+		}
+		if ( class_exists( 'GSUP_Shop' ) && GSUP_Shop::handles( $product ) ) {
+			return; // Delivery by country is shown with the add-to-cart button instead.
 		}
 		$range = self::range( $product );
 		if ( $range ) {
@@ -97,6 +118,9 @@ class GSUP_Eta {
 
 	/** Chosen option: its own estimate appears with its stock line. */
 	public static function variation( $data, $product, $variation ) {
+		if ( $variation && class_exists( 'GSUP_Shop' ) && GSUP_Shop::handles( $variation ) ) {
+			return $data;
+		}
 		$d = $variation ? self::days_for( $variation->get_id() ) : null;
 		if ( $d && $variation->is_in_stock() ) {
 			$data['availability_html'] = ( isset( $data['availability_html'] ) ? $data['availability_html'] : '' ) . '<p class="gsup-eta gsup-eta--option">' . esc_html( self::text( $d ) ) . '</p>';

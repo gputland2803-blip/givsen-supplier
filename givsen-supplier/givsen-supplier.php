@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Givsen Supplier
  * Description:       Links WooCommerce products to AliExpress by ID (product ID on the product, SKU ID on each variation), places paid orders on AliExpress automatically and brings tracking back, and shows your margin on every product and order. Replaces DSers.
- * Version:           0.14.0
+ * Version:           0.15.0
  * Author:            Givsen
  * Requires at least: 6.4
  * Requires PHP:      7.4
@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'GSUP_VERSION', '0.14.0' );
+define( 'GSUP_VERSION', '0.15.0' );
 define( 'GSUP_DB_VERSION', '6' ); // 6: reach table (where each warehouse delivers).
 define( 'GSUP_FILE', __FILE__ );
 define( 'GSUP_DIR', plugin_dir_path( __FILE__ ) );
@@ -71,6 +71,10 @@ function gsup_boot() {
 	require_once GSUP_DIR . 'includes/class-gsup-eta.php';
 	require_once GSUP_DIR . 'includes/class-gsup-sources.php';
 	GSUP_Sources::init();
+	require_once GSUP_DIR . 'includes/class-gsup-visitor.php';
+	require_once GSUP_DIR . 'includes/class-gsup-shop.php';
+	GSUP_Visitor::init();
+	GSUP_Shop::init();
 	GSUP_Remap::init();
 	GSUP_Eta::init();
 	GSUP_Sync::init();
