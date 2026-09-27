@@ -608,6 +608,7 @@ class GSUP_Sources {
 
 	/** Shop lists cached per country are rebuilt after any change. */
 	public static function bump() {
+		self::$reach_memo = array();
 		update_option( 'gsup_reach_ver', (int) get_option( 'gsup_reach_ver', 0 ) + 1, true );
 	}
 
@@ -656,12 +657,23 @@ class GSUP_Sources {
 	 */
 	public static function reach( $product_id, $item_id = 0 ) {
 		global $wpdb;
+		// Once per product per request (the shop and gift checks ask for several countries in turn).
+		if ( ! $item_id && isset( self::$reach_memo[ (int) $product_id ] ) ) {
+			return self::$reach_memo[ (int) $product_id ];
+		}
 		$table = GSUP_Install::reach_table();
 		$sql   = $item_id
 			? $wpdb->prepare( "SELECT * FROM {$table} WHERE item_id = %d ORDER BY country, warehouse", (int) $item_id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 			: $wpdb->prepare( "SELECT * FROM {$table} WHERE product_id = %d ORDER BY item_id, country, warehouse", (int) $product_id ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		return (array) $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = (array) $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared
+		if ( ! $item_id ) {
+			self::$reach_memo[ (int) $product_id ] = $rows;
+		}
+		return $rows;
 	}
+
+	/** @var array<int,array[]> Reach rows read this request, by product. */
+	private static $reach_memo = array();
 
 	/**
 	 * Reach for a country you don't list: one listing call and a quote per warehouse, live (kept for 6 hours in a

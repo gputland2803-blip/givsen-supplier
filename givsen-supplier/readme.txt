@@ -5,7 +5,7 @@ Tested up to: 7.0
 Requires PHP: 7.4
 WC requires at least: 8.0
 WC tested up to: 11.1
-Stable tag: 0.16.1
+Stable tag: 0.16.2
 License: Proprietary
 
 Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress" panel to every order. Replaces DSers for givsen.com.
@@ -35,6 +35,9 @@ Links WooCommerce products to AliExpress by ID and adds an "Order on AliExpress"
 See SPEC.md for the full behaviour and regression checklist.
 
 == Changelog ==
+
+= 0.16.2 =
+* Works with Givsen 1.4.4 (gifts to any country): orders to countries without postcodes (Hong Kong, UAE…) are placed, foreign phone numbers keep their own country code, unknown country codes are refused before ordering.
 
 = 0.16.1 =
 * With Givsen 1.4.3: gift address forms leave out countries the gift can't reach, and an address there is refused with a clear message before the claim completes.

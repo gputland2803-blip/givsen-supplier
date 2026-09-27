@@ -662,7 +662,7 @@ class GSUP_Orders {
 				'name'           => $name,
 				'street address' => $street,
 				'city/suburb'    => $get( 'city' ),
-				'postcode'       => $get( 'postcode' ),
+				'postcode'       => self::postcode_needed( $country ) ? $get( 'postcode' ) : 'n/a',
 				'country'        => $country,
 				'phone number'   => $phone,
 			) as $label => $value
@@ -673,6 +673,10 @@ class GSUP_Orders {
 		}
 		if ( $missing ) {
 			return new WP_Error( 'gsup_address', 'The delivery address is missing: ' . implode( ', ', $missing ) . '.' );
+		}
+		$known = WC()->countries ? WC()->countries->get_countries() : array();
+		if ( $known && ! isset( $known[ strtoupper( $country ) ] ) ) {
+			return new WP_Error( 'gsup_address', 'The delivery country (' . $country . ') isn’t one WooCommerce knows — check the address with the customer before ordering.' );
 		}
 
 		list( $calling, $mobile ) = self::phone( $phone, $country );
@@ -691,6 +695,24 @@ class GSUP_Orders {
 	}
 
 	/** "+61 412 345 678" / "0412 345 678" → ['+61', '412345678']. */
+	/**
+	 * Whether addresses in a country use a postcode (WooCommerce's address format). Hong Kong, the UAE, Qatar and
+	 * others don't, and Givsen 1.4.4+ takes gift addresses there without one.
+	 */
+	public static function postcode_needed( $country ) {
+		if ( '' === (string) $country || ! function_exists( 'WC' ) || ! WC()->countries ) {
+			return true;
+		}
+		$locale = WC()->countries->get_country_locale();
+		$pc     = $locale[ strtoupper( $country ) ]['postcode'] ?? array();
+		return empty( $pc['hidden'] ) && ( ! isset( $pc['required'] ) || $pc['required'] );
+	}
+
+	/**
+	 * Phone for AliExpress: [calling code, number without it]. International numbers keep their own country's code —
+	 * a gift to the UK can carry an Australian mobile (the sender's fallback) — found by matching the longest calling
+	 * code WooCommerce knows; national numbers get the delivery country's code, trunk 0 dropped.
+	 */
 	private static function phone( $phone, $country ) {
 		$calling = '';
 		if ( method_exists( WC()->countries, 'get_country_calling_code' ) ) {
@@ -698,15 +720,44 @@ class GSUP_Orders {
 		}
 		$digits = preg_replace( '/\D/', '', $phone );
 		$code   = ltrim( $calling, '+' );
-		if ( '' !== $code && 0 === strpos( ltrim( $phone ), '+' ) && 0 === strpos( $digits, $code ) ) {
-			$digits = substr( $digits, strlen( $code ) );
-		} elseif ( '' !== $code && 0 === strpos( $digits, '00' . $code ) ) {
-			$digits = substr( $digits, 2 + strlen( $code ) );
+		$intl   = 0 === strpos( ltrim( $phone ), '+' ) ? $digits : ( 0 === strpos( $digits, '00' ) ? substr( $digits, 2 ) : '' );
+		if ( '' !== $intl && ( '' === $code || 0 !== strpos( $intl, $code ) ) ) {
+			$own = self::calling_code_of( $intl );
+			if ( '' !== $own ) {
+				return array( '+' . $own, ltrim( substr( $intl, strlen( $own ) ), '0' ) );
+			}
+		}
+		if ( '' !== $code && '' !== $intl && 0 === strpos( $intl, $code ) ) {
+			$digits = substr( $intl, strlen( $code ) );
 		}
 		if ( '' !== $code && 'US' !== $country && 'CA' !== $country ) {
 			$digits = ltrim( $digits, '0' ); // Trunk prefix, e.g. 0412… in Australia.
 		}
 		return array( '' !== $code ? '+' . $code : '', $digits );
+	}
+
+	/** The calling code an international number starts with ("447911…" → "44"), longest match, or ''. */
+	private static function calling_code_of( $digits ) {
+		static $codes = null;
+		if ( null === $codes ) {
+			$codes = array();
+			if ( function_exists( 'WC' ) && WC()->countries && method_exists( WC()->countries, 'get_country_calling_code' ) ) {
+				foreach ( array_keys( WC()->countries->get_countries() ) as $cc ) {
+					foreach ( (array) WC()->countries->get_country_calling_code( $cc ) as $c ) {
+						$c = ltrim( (string) $c, '+' );
+						if ( '' !== $c && ctype_digit( $c ) ) {
+							$codes[ $c ] = true;
+						}
+					}
+				}
+			}
+		}
+		for ( $len = 4; $len >= 1; $len-- ) {
+			if ( isset( $codes[ substr( $digits, 0, $len ) ] ) ) {
+				return substr( $digits, 0, $len );
+			}
+		}
+		return '';
 	}
 
 	private static function email_problems( WC_Order $order, array $problems ) {

@@ -21,7 +21,7 @@ function wp_remote_retrieve_response_code($r){return 200;}
 function gsup_sanitize_ship_from($v){ $m=['Australia'=>'AU','China'=>'CN','United States'=>'US']; return $m[$v] ?? ''; }
 function gsup_parse_product_id($v){return (string)$v;}
 class WC { public $countries; }
-class Countries { function get_country_calling_code($c){ return ['AU'=>'+61','US'=>'+1','GB'=>'+44'][$c] ?? ''; } }
+class Countries { function get_country_calling_code($c){ return ['AU'=>'+61','US'=>'+1','GB'=>'+44','HK'=>'+852','NZ'=>'+64'][$c] ?? ''; } function get_states($c){ return []; } function get_countries(){ return ['AU'=>'Australia','US'=>'United States (US)','GB'=>'United Kingdom (UK)','HK'=>'Hong Kong','NZ'=>'New Zealand']; } function get_country_locale(){ return ['HK'=>['postcode'=>['required'=>false]],'AE'=>['postcode'=>['hidden'=>true,'required'=>false]],'GB'=>['postcode'=>['label'=>'Postcode']]]; } }
 function WC(){ static $w; if(!$w){$w=new WC; $w->countries=new Countries;} return $w; }
 $dir=__DIR__ . '/../givsen-supplier/includes/';
 require $dir.'class-gsup-aliexpress.php';
@@ -96,7 +96,22 @@ ok($m->invoke(null,'0412 345 678','AU')===['+61','412345678'],'AU local mobile')
 ok($m->invoke(null,'+61 412-345-678','AU')===['+61','412345678'],'AU intl mobile');
 ok($m->invoke(null,'(555) 123-4567','US')===['+1','5551234567'],'US number');
 ok($m->invoke(null,'+1 555 123 4567','US')===['+1','5551234567'],'US intl');
+ok($m->invoke(null,'+44 7911 123456','GB')===['+44','7911123456'],'UK intl mobile');
+ok($m->invoke(null,'07911 123456','GB')===['+44','7911123456'],'UK national mobile: trunk 0 dropped, UK code');
+ok($m->invoke(null,'+61 412 345 678','GB')===['+61','412345678'],'gift to the UK with an Australian mobile (e.g. the fallback): keeps +61');
+ok($m->invoke(null,'0061412345678','NZ')===['+61','412345678'],'00-prefixed foreign number: its own code');
+ok($m->invoke(null,'+852 9123 4567','HK')===['+852','91234567'],'three-digit calling code (Hong Kong)');
+ok(GSUP_Orders::postcode_needed('AU') && GSUP_Orders::postcode_needed('GB') && !GSUP_Orders::postcode_needed('HK') && !GSUP_Orders::postcode_needed('AE'),'postcode needed per WooCommerce’s address format (not Hong Kong / UAE)');
 ok(GSUP_AliExpress::$last_pay_requested===true,'pay flag set on new method');
+if ( ! class_exists( 'GSUP_Givsen' ) ) { class GSUP_Givsen { static function fallback_phone( $o ) { return ''; } } }
+if ( ! class_exists( 'WC_Order' ) ) { class WC_Order {} }
+class Addr_Order extends WC_Order { public $a; function __construct( $a ) { $this->a = $a; } function has_shipping_address() { return true; } function get_shipping_phone() { return '+85291234567'; } function get_billing_phone() { return ''; } function __call( $m, $x ) { $k = preg_replace( '/^get_(shipping|billing)_/', '', $m ); return $this->a[ $k ] ?? ''; } }
+$hk = GSUP_Orders::address( new Addr_Order( array( 'first_name' => 'Kit', 'last_name' => 'Chan', 'address_1' => '1 Queen’s Rd', 'city' => 'Central', 'country' => 'HK' ) ) );
+ok( is_array( $hk ) && 'HK' === $hk['country'] && '+852' === $hk['phone_country'], 'Hong Kong gift address without a postcode is accepted for ordering' );
+$gb = GSUP_Orders::address( new Addr_Order( array( 'first_name' => 'Sam', 'last_name' => 'Lee', 'address_1' => '1 High St', 'city' => 'London', 'country' => 'GB' ) ) );
+ok( is_wp_error( $gb ) && false !== strpos( $gb->get_error_message(), 'postcode' ), 'UK address still needs its postcode' );
+$xx = GSUP_Orders::address( new Addr_Order( array( 'first_name' => 'A', 'last_name' => 'B', 'address_1' => '1 St', 'city' => 'C', 'postcode' => '123', 'country' => 'XX' ) ) );
+ok( is_wp_error( $xx ) && false !== strpos( $xx->get_error_message(), 'isn’t one WooCommerce knows' ), 'unknown country code refused before ordering' );
 $GLOBALS['replies'][]=json_encode(['error_response'=>['code'=>'InsufficientIsvPermissions','msg'=>'Insufficient isv permissions']]);
 $GLOBALS['replies'][]=json_encode(['aliexpress_trade_buy_placeorder_response'=>['result'=>['is_success'=>true,'order_list'=>['number'=>['900']]]]]);
 $GLOBALS['sent']=[];

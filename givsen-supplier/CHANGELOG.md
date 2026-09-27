@@ -1,5 +1,12 @@
 # Givsen Supplier — Changelog
 
+## 0.16.2 — 2026-09-27
+Checked against Givsen 1.4.4 and Givsen Core 0.22.0 (gift addresses in any country).
+- **Fix: gifts to countries without postcodes were never placed.** Automatic ordering required a postcode for every address; Givsen 1.4.4 (following WooCommerce's address formats) takes addresses without one where the country doesn't use them — Hong Kong, the UAE, Qatar and others. A postcode is now required only where WooCommerce requires it.
+- **Fix: phone numbers from another country.** A gift to the UK carrying an Australian mobile (the sender's, or your fallback number) was sent to AliExpress as +44 followed by the Australian digits. International numbers now keep their own calling code (longest match against WooCommerce's list); national numbers still get the delivery country's code with the trunk 0 dropped.
+- **Safety: unknown country codes** (Givsen 1.4.4 puts such an order on hold, but payment can move it on to Processing) are refused before anything is ordered, with a note to check the address.
+- Faster gift address forms: reach rows are read once per product per request (the country list check asks for several countries in turn).
+
 ## 0.16.1 — 2026-09-26
 - **Gift addresses checked before the claim completes** (needs Givsen 1.4.3, which adds the two filters). The recipient's claim page and the sender's address form leave out your selling countries that none of the gift's items can reach, and an address in a country no warehouse can deliver to is refused on the form with a clear message ("Sorry — Pearl Necklace can't be delivered to France. If there's an address in another country you can use, enter it instead…") — nothing is saved, and Givsen notes the attempt on the order. Business gifting claims (their address comes from Givsen's own service) are still caught at ordering.
 
